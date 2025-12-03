@@ -1,0 +1,55 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+env/
+venv/
+.venv/
+ENV/
+.ENV/
+venv.bak/
+
+# Python env files
+.env
+.env.*
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints
+
+# Testing
+.pytest_cache/
+
+# Logs
+*.log
+
+# Databases
+*.sqlite3
+*.sqlite
+*.db
+
+# Large data or raw data directories (avoid pushing heavy files)
+Raw Data/
+Processed Data/
+DataPrep-Notebooks/
+
+# Chroma / local vector DB folders
+chroma_vector_db_*/
+
+# Notebook and temporary files
+*.ipynb
