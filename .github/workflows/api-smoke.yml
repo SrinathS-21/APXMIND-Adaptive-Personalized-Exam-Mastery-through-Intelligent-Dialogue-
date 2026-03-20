@@ -1,0 +1,57 @@
+name: API Smoke Checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+
+jobs:
+  smoke-core:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Seed database
+        run: python -m scripts.seed_data
+
+      - name: Start API
+        run: |
+          nohup python main.py --host 127.0.0.1 --port 8000 > api.log 2>&1 &
+          echo $! > api.pid
+
+      - name: Run core smoke checks
+        run: |
+          python scripts/test_full_api.py \
+            --base-url http://127.0.0.1:8000 \
+            --profile core \
+            --seed-if-empty \
+            --ensure-recommendation \
+            --report-json artifacts/api-smoke-report.json
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-smoke-artifacts
+          path: |
+            artifacts/api-smoke-report.json
+            api.log
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f api.pid ]; then kill $(cat api.pid) || true; fi

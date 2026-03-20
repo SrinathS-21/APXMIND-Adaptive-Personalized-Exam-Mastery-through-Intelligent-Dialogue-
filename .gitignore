@@ -1,0 +1,53 @@
+# ── Python ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# ── Node / Frontend ────────────────────────────────────────────────
+client/node_modules/
+client/dist/
+client/.vite/
+
+# ── IDE ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── Environment & Secrets ──────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Data & Models (large files) ────────────────────────────────────
+models/
+data/raw/
+data/vectorstore/
+*.gguf
+
+# ── Database ────────────────────────────────────────────────────────
+*.db
+*.sqlite3
+src/APXMIND/vectordb/
+
+# ── Logs ────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ── OS ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

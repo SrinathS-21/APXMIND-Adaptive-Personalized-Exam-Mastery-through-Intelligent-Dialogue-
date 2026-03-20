@@ -1,0 +1,425 @@
+{
+  "baseUrl": "http://127.0.0.1:8000",
+  "profile": "full",
+  "includeLlm": false,
+  "includeWs": false,
+  "strictSkips": false,
+  "timestamp": "2026-03-17T09:25:23.073801+00:00",
+  "testUser": "smoke_0656ad43",
+  "counts": {
+    "passed": 67,
+    "failed": 0,
+    "skipped": 1,
+    "total": 68
+  },
+  "results": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/openapi.json",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/docs",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register",
+      "status": 201,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/profile",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "PUT",
+      "path": "/api/auth/profile",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/users",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/subjects",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/subjects/biology/lessons",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/subjects/biology/lessons/1/complete",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/books/Biology/11Bio1/kebo101.pdf",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard/summary",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/progress/daily",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/progress/gamification",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/progress/study-minutes",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/quiz",
+      "status": 201,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/quiz",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/quiz/dd72f808-4481-4f3f-bb4d-cf03ee98961f",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/quiz/dd72f808-4481-4f3f-bb4d-cf03ee98961f/questions",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/quiz/dd72f808-4481-4f3f-bb4d-cf03ee98961f/answers",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "PUT",
+      "path": "/api/quiz/dd72f808-4481-4f3f-bb4d-cf03ee98961f/answers/4",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/quiz/dd72f808-4481-4f3f-bb4d-cf03ee98961f/results",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/quiz/dd72f808-4481-4f3f-bb4d-cf03ee98961f/finish",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/quiz/dd72f808-4481-4f3f-bb4d-cf03ee98961f",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/quiz",
+      "status": 201,
+      "reason": ""
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/quiz/2050d194-1c87-4686-974c-b71d218c8929/abandon",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/quiz/2050d194-1c87-4686-974c-b71d218c8929",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/learn/sessions",
+      "status": 201,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/learn/sessions",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/learn/sessions/97a687a4-9f2e-4573-8457-cb6a50325a10/messages",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/learn/sessions/97a687a4-9f2e-4573-8457-cb6a50325a10",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/learn/sessions/97a687a4-9f2e-4573-8457-cb6a50325a10/messages",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/learn/sessions/97a687a4-9f2e-4573-8457-cb6a50325a10/messages/4",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/learn/sessions/97a687a4-9f2e-4573-8457-cb6a50325a10/messages",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/learn/sessions/97a687a4-9f2e-4573-8457-cb6a50325a10/end",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/learn/sessions/97a687a4-9f2e-4573-8457-cb6a50325a10",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/library/bookmarks",
+      "status": 201,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/bookmarks",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/bookmarks/36050f37-9f1c-467a-bf3b-030422d8c4c5",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/library/bookmarks/36050f37-9f1c-467a-bf3b-030422d8c4c5",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/library/bookmarks/36050f37-9f1c-467a-bf3b-030422d8c4c5",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/library/bookmarks",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/library/notes",
+      "status": 201,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/notes",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/notes/de4ee9e6-c7bb-4959-ab0f-b28a80cb96b9",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "PUT",
+      "path": "/api/library/notes/de4ee9e6-c7bb-4959-ab0f-b28a80cb96b9",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/library/notes",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/achievements",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/achievements/earned",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/achievements/first_lesson",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/profile/subjects",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "PUT",
+      "path": "/api/profile/subjects/biology",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/profile/subjects/biology",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/recommendations",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/recommendations/1",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/recommendations/1",
+      "status": 204,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/insights/mastery",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/insights/mastery/biology",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/insights/readiness",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/insights/habits",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/query",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/trainer/generate-quiz",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/trainer/submit-answer",
+      "status": 200,
+      "reason": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/events/stream",
+      "status": 200,
+      "reason": "data: {\"type\": \"connected\", \"data\": {\"user_id\": 16}}"
+    },
+    {
+      "method": "WS",
+      "path": "/ws/chat",
+      "status": "SKIP",
+      "reason": "disabled"
+    }
+  ]
+}

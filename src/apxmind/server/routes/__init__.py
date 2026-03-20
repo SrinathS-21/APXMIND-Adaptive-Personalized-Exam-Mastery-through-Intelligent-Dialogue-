@@ -1,0 +1,3 @@
+"""
+APXMIND Server Routes Package
+"""
