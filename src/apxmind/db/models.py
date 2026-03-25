@@ -105,6 +105,25 @@ class User(Base):
     daily_study_target = Column(Integer, nullable=True, default=4)
     last_active = Column(DateTime, nullable=True)
 
+    # Security columns (Phase 1)
+    password_changed_at = Column(DateTime, nullable=True)
+    must_change_password = Column(Boolean, default=False)
+    recovery_email = Column(String(120), nullable=True)
+    recovery_phone = Column(String(20), nullable=True)
+    security_questions = Column(JSON, nullable=True)
+    terms_accepted_at = Column(DateTime, nullable=True)
+    privacy_accepted_at = Column(DateTime, nullable=True)
+    gdpr_consent_at = Column(DateTime, nullable=True)
+    marketing_consent = Column(Boolean, default=False)
+    data_export_requested_at = Column(DateTime, nullable=True)
+    account_deletion_requested_at = Column(DateTime, nullable=True)
+
+    # Payment/Subscription columns (Phase 2)
+    subscription_status = Column(String(20), default="free")
+    subscription_expires_at = Column(DateTime, nullable=True)
+    lifetime_value_inr = Column(Integer, default=0)
+    referral_code = Column(String(20), unique=True, nullable=True)
+
     # Relationships — new tables
     subject_preferences = relationship(
         "UserSubjectPreference", back_populates="user", cascade="all, delete-orphan"
@@ -145,6 +164,40 @@ class User(Base):
     # Relationships — legacy tables
     progress = relationship("Progress", back_populates="user", cascade="all, delete-orphan")
     quiz_attempts = relationship("QuizAttempt", back_populates="user", cascade="all, delete-orphan")
+
+    # Relationships — Security (Phase 1)
+    password_reset_tokens = relationship("PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    login_history = relationship("LoginHistory", back_populates="user", cascade="all, delete-orphan")
+    email_verification_tokens = relationship("EmailVerificationToken", back_populates="user", cascade="all, delete-orphan")
+    two_factor_backup_codes = relationship("TwoFactorBackupCode", back_populates="user", cascade="all, delete-orphan")
+    devices = relationship("UserDevice", back_populates="user", cascade="all, delete-orphan")
+    sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    security_events = relationship("SecurityEvent", back_populates="user", cascade="all, delete-orphan")
+
+    # Relationships — Payments (Phase 2)
+    subscriptions = relationship("UserSubscription", foreign_keys="UserSubscription.user_id", back_populates="user", cascade="all, delete-orphan")
+    payments = relationship("Payment", back_populates="user", cascade="all, delete-orphan")
+    invoices = relationship("Invoice", back_populates="user", cascade="all, delete-orphan")
+    promo_redemptions = relationship("PromoRedemption", back_populates="user", cascade="all, delete-orphan")
+    referrals_made = relationship("Referral", foreign_keys="Referral.referrer_id", back_populates="referrer")
+    referred_by = relationship("Referral", foreign_keys="Referral.referee_id", back_populates="referee")
+    wallet = relationship("UserWallet", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+    # Relationships — Notifications (Phase 3)
+    notifications = relationship("UserNotification", back_populates="user", cascade="all, delete-orphan")
+    push_tokens = relationship("PushToken", back_populates="user", cascade="all, delete-orphan")
+    notification_preferences = relationship("NotificationPreference", back_populates="user", cascade="all, delete-orphan")
+    notification_settings = relationship("NotificationSetting", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    study_reminders = relationship("StudyReminder", back_populates="user", cascade="all, delete-orphan")
+
+    # Relationships — Admin (Phase 4)
+    support_tickets = relationship("SupportTicket", back_populates="user", cascade="all, delete-orphan")
+    content_reports = relationship("ContentReport", back_populates="reporter", cascade="all, delete-orphan")
+    warnings = relationship("UserWarning", back_populates="user", cascade="all, delete-orphan")
+    bans = relationship("UserBan", back_populates="user", cascade="all, delete-orphan")
+    feature_flag_overrides = relationship("FeatureFlagOverride", back_populates="user", cascade="all, delete-orphan")
+    announcement_dismissals = relationship("AnnouncementDismissal", back_populates="user", cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -745,3 +798,984 @@ class QuizAttempt(Base):
             "time_taken": self.time_taken,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+# ============================================================================
+# PHASE 1: SECURITY & AUTHENTICATION  (10 MODELS)
+# ============================================================================
+
+class PasswordResetToken(Base):
+    """Password reset tokens with expiration."""
+    __tablename__ = "password_reset_tokens"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(256), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    ip_address = Column(String(45), nullable=True)
+    user = relationship("User", back_populates="password_reset_tokens")
+
+
+class RefreshToken(Base):
+    """JWT refresh tokens for session management."""
+    __tablename__ = "refresh_tokens"
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_id = Column(String(36), ForeignKey("user_sessions.id", ondelete="SET NULL"), nullable=True)
+    token_hash = Column(String(256), unique=True, nullable=False, index=True)
+    device_fingerprint = Column(String(256), nullable=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoke_reason = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="refresh_tokens")
+    session = relationship("UserSession", back_populates="refresh_tokens")
+
+
+class RateLimit(Base):
+    """API rate limiting records."""
+    __tablename__ = "rate_limits"
+    __table_args__ = (Index("ix_rate_limit_lookup", "identifier", "endpoint", "window_end"),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    identifier = Column(String(256), nullable=False)
+    identifier_type = Column(String(20), nullable=False)
+    endpoint = Column(String(255), nullable=False)
+    request_count = Column(Integer, default=1)
+    window_start = Column(DateTime, nullable=False)
+    window_end = Column(DateTime, nullable=False)
+
+
+class SecurityBlock(Base):
+    """Blocked IPs, users, or devices."""
+    __tablename__ = "security_blocks"
+    __table_args__ = (Index("ix_block_lookup", "block_type", "identifier", "is_active"),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    block_type = Column(String(20), nullable=False)
+    identifier = Column(String(256), nullable=False)
+    reason = Column(Text, nullable=False)
+    severity = Column(String(20), default="medium")
+    blocked_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    blocked_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    notes = Column(Text, nullable=True)
+
+
+class LoginHistory(Base):
+    """Login attempt history for security monitoring."""
+    __tablename__ = "login_history"
+    __table_args__ = (Index("ix_login_user_time", "user_id", "created_at"),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    success = Column(Boolean, nullable=False)
+    failure_reason = Column(String(50), nullable=True)
+    ip_address = Column(String(45), nullable=True, index=True)
+    user_agent = Column(Text, nullable=True)
+    device_type = Column(String(30), nullable=True)
+    browser = Column(String(50), nullable=True)
+    browser_version = Column(String(20), nullable=True)
+    os = Column(String(50), nullable=True)
+    os_version = Column(String(20), nullable=True)
+    location_country = Column(String(50), nullable=True)
+    location_state = Column(String(100), nullable=True)
+    location_city = Column(String(100), nullable=True)
+    is_suspicious = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="login_history")
+
+
+class EmailVerificationToken(Base):
+    """Email verification tokens."""
+    __tablename__ = "email_verification_tokens"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    email = Column(String(120), nullable=False)
+    token_hash = Column(String(256), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    verified_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="email_verification_tokens")
+
+
+class TwoFactorBackupCode(Base):
+    """2FA emergency recovery codes."""
+    __tablename__ = "two_factor_backup_codes"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    code_hash = Column(String(256), nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="two_factor_backup_codes")
+
+
+class UserDevice(Base):
+    """Trusted devices for a user."""
+    __tablename__ = "user_devices"
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_name = Column(String(100), nullable=True)
+    device_fingerprint = Column(String(256), nullable=True, index=True)
+    device_type = Column(String(30), nullable=False)
+    platform = Column(String(30), nullable=True)
+    os = Column(String(50), nullable=True)
+    browser = Column(String(50), nullable=True)
+    is_trusted = Column(Boolean, default=False)
+    last_active_at = Column(DateTime, nullable=True)
+    last_ip_address = Column(String(45), nullable=True)
+    last_location = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="devices")
+
+
+class UserSession(Base):
+    """User sessions for multi-device management."""
+    __tablename__ = "user_sessions"
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_id = Column(String(36), ForeignKey("user_devices.id"), nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    location = Column(String(100), nullable=True)
+    is_revoked = Column(Boolean, default=False, index=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoke_reason = Column(String(50), nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    last_activity = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="sessions")
+    device = relationship("UserDevice")
+    refresh_tokens = relationship("RefreshToken", back_populates="session")
+
+
+class SecurityEvent(Base):
+    """Detailed security event audit log."""
+    __tablename__ = "security_events"
+    __table_args__ = (Index("ix_security_event_user", "user_id", "created_at"),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    event_type = Column(String(50), nullable=False)
+    severity = Column(String(20), nullable=False)
+    description = Column(Text, nullable=False)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    device_id = Column(String(36), nullable=True)
+    event_metadata = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="security_events")
+
+
+# ============================================================================
+# PHASE 2: PAYMENTS & SUBSCRIPTIONS  (10 MODELS)
+# ============================================================================
+
+class SubscriptionPlan(Base):
+    __tablename__ = "subscription_plans"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    code = Column(String(50), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    display_name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    price_inr = Column(Integer, nullable=False)
+    price_usd = Column(Integer, nullable=True)
+    original_price_inr = Column(Integer, nullable=True)
+    billing_period = Column(String(20), nullable=False)
+    duration_days = Column(Integer, nullable=False)
+    features = Column(JSON, nullable=False, default=dict)
+    is_featured = Column(Boolean, default=False)
+    badge_text = Column(String(50), nullable=True)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    available_from = Column(DateTime, nullable=True)
+    available_until = Column(DateTime, nullable=True)
+    target_segments = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    subscriptions = relationship("UserSubscription", back_populates="plan")
+
+
+class UserSubscription(Base):
+    __tablename__ = "user_subscriptions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    plan_id = Column(String(36), ForeignKey("subscription_plans.id"), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="active")
+    started_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    paused_at = Column(DateTime, nullable=True)
+    resumed_at = Column(DateTime, nullable=True)
+    cancel_reason = Column(String(100), nullable=True)
+    cancel_feedback = Column(Text, nullable=True)
+    auto_renew = Column(Boolean, default=True)
+    renewal_reminder_sent = Column(Boolean, default=False)
+    payment_method = Column(String(30), nullable=True)
+    razorpay_subscription_id = Column(String(100), nullable=True)
+    acquired_via = Column(String(50), nullable=True)
+    promo_code_used = Column(String(50), nullable=True)
+    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id], back_populates="subscriptions")
+    plan = relationship("SubscriptionPlan", back_populates="subscriptions")
+    payments = relationship("Payment", back_populates="subscription")
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    subscription_id = Column(String(36), ForeignKey("user_subscriptions.id"), nullable=True, index=True)
+    amount = Column(Integer, nullable=False)
+    currency = Column(String(3), nullable=False, default="INR")
+    tax_amount = Column(Integer, default=0)
+    discount_amount = Column(Integer, default=0)
+    final_amount = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, index=True)
+    payment_method = Column(String(30), nullable=False)
+    payment_method_details = Column(JSON, nullable=True)
+    gateway = Column(String(30), nullable=False, default="razorpay")
+    gateway_order_id = Column(String(100), nullable=True, index=True)
+    gateway_payment_id = Column(String(100), nullable=True, index=True)
+    gateway_signature = Column(String(512), nullable=True)
+    gateway_response = Column(JSON, nullable=True)
+    failure_code = Column(String(50), nullable=True)
+    failure_reason = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0)
+    refund_amount = Column(Integer, nullable=True)
+    refund_reason = Column(Text, nullable=True)
+    refund_gateway_id = Column(String(100), nullable=True)
+    refunded_at = Column(DateTime, nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="payments")
+    subscription = relationship("UserSubscription", back_populates="payments")
+    invoice = relationship("Invoice", back_populates="payment", uselist=False)
+    promo_redemptions = relationship("PromoRedemption", back_populates="payment")
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    payment_id = Column(String(36), ForeignKey("payments.id"), nullable=True)
+    invoice_number = Column(String(50), unique=True, nullable=False, index=True)
+    fiscal_year = Column(String(10), nullable=False, index=True)
+    subtotal = Column(Integer, nullable=False)
+    discount_amount = Column(Integer, default=0)
+    taxable_amount = Column(Integer, nullable=False)
+    cgst_percent = Column(Numeric(5, 2), default=9)
+    cgst_amount = Column(Integer, default=0)
+    sgst_percent = Column(Numeric(5, 2), default=9)
+    sgst_amount = Column(Integer, default=0)
+    igst_percent = Column(Numeric(5, 2), nullable=True)
+    igst_amount = Column(Integer, default=0)
+    total_amount = Column(Integer, nullable=False)
+    billing_name = Column(String(100), nullable=False)
+    billing_email = Column(String(120), nullable=True)
+    billing_phone = Column(String(20), nullable=True)
+    billing_address_line1 = Column(String(255), nullable=True)
+    billing_address_line2 = Column(String(255), nullable=True)
+    billing_city = Column(String(100), nullable=True)
+    billing_state = Column(String(50), nullable=True)
+    billing_pincode = Column(String(10), nullable=True)
+    billing_country = Column(String(50), default="India")
+    billing_gst = Column(String(20), nullable=True)
+    seller_name = Column(String(100), default="ApxMind EdTech Pvt Ltd")
+    seller_gst = Column(String(20), nullable=True)
+    seller_pan = Column(String(20), nullable=True)
+    seller_address = Column(Text, nullable=True)
+    status = Column(String(20), default="draft")
+    invoice_date = Column(Date, nullable=False)
+    due_date = Column(Date, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    pdf_generated = Column(Boolean, default=False)
+    pdf_url = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="invoices")
+    payment = relationship("Payment", back_populates="invoice")
+
+
+class PromoCode(Base):
+    __tablename__ = "promo_codes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(50), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    display_text = Column(String(100), nullable=True)
+    discount_type = Column(String(20), nullable=False)
+    discount_value = Column(Integer, nullable=False)
+    max_discount = Column(Integer, nullable=True)
+    min_purchase = Column(Integer, nullable=True)
+    applicable_plans = Column(JSON, nullable=True)
+    applicable_users = Column(JSON, nullable=True)
+    first_purchase_only = Column(Boolean, default=False)
+    max_total_uses = Column(Integer, nullable=True)
+    max_uses_per_user = Column(Integer, default=1)
+    current_uses = Column(Integer, default=0)
+    valid_from = Column(DateTime, nullable=True)
+    valid_until = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    campaign_name = Column(String(100), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    redemptions = relationship("PromoRedemption", back_populates="promo")
+
+
+class PromoRedemption(Base):
+    __tablename__ = "promo_redemptions"
+    __table_args__ = (
+        UniqueConstraint("promo_id", "user_id", "payment_id", name="uq_promo_user_payment"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    promo_id = Column(Integer, ForeignKey("promo_codes.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    payment_id = Column(String(36), ForeignKey("payments.id"), nullable=True)
+    original_amount = Column(Integer, nullable=False)
+    discount_applied = Column(Integer, nullable=False)
+    final_amount = Column(Integer, nullable=False)
+    redeemed_at = Column(DateTime, default=datetime.utcnow)
+
+    promo = relationship("PromoCode", back_populates="redemptions")
+    user = relationship("User", back_populates="promo_redemptions")
+    payment = relationship("Payment", back_populates="promo_redemptions")
+
+
+class Referral(Base):
+    __tablename__ = "referrals"
+    __table_args__ = (
+        UniqueConstraint("referrer_id", "referee_id", name="uq_referrer_referee"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    referee_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(20), default="pending")
+    qualified_at = Column(DateTime, nullable=True)
+    qualifying_payment_id = Column(String(36), ForeignKey("payments.id"), nullable=True)
+    referrer_reward_type = Column(String(20), nullable=True)
+    referrer_reward_value = Column(Integer, nullable=True)
+    referrer_reward_applied = Column(Boolean, default=False)
+    referrer_rewarded_at = Column(DateTime, nullable=True)
+    referee_reward_type = Column(String(20), nullable=True)
+    referee_reward_value = Column(Integer, nullable=True)
+    referee_reward_applied = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    referrer = relationship("User", foreign_keys=[referrer_id], back_populates="referrals_made")
+    referee = relationship("User", foreign_keys=[referee_id], back_populates="referred_by")
+
+
+class UserWallet(Base):
+    __tablename__ = "user_wallet"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    balance = Column(Integer, nullable=False, default=0)
+    lifetime_earned = Column(Integer, default=0)
+    lifetime_spent = Column(Integer, default=0)
+    last_transaction_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="wallet")
+    transactions = relationship("WalletTransaction", back_populates="wallet", cascade="all, delete-orphan")
+
+
+class WalletTransaction(Base):
+    __tablename__ = "wallet_transactions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user_wallet.user_id"), nullable=False, index=True)
+    transaction_type = Column(String(30), nullable=False)
+    amount = Column(Integer, nullable=False)
+    balance_after = Column(Integer, nullable=False)
+    description = Column(Text, nullable=False)
+    reference_type = Column(String(30), nullable=True)
+    reference_id = Column(String(64), nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    wallet = relationship("UserWallet", back_populates="transactions")
+
+
+class PaymentRetryQueue(Base):
+    __tablename__ = "payment_retry_queue"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    subscription_id = Column(String(36), ForeignKey("user_subscriptions.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    retry_count = Column(Integer, default=0)
+    max_retries = Column(Integer, default=3)
+    last_attempt_at = Column(DateTime, nullable=True)
+    next_attempt_at = Column(DateTime, nullable=False, index=True)
+    last_failure_reason = Column(Text, nullable=True)
+    status = Column(String(20), default="pending", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================================
+# PHASE 3: NOTIFICATIONS  (10 MODELS)
+# ============================================================================
+
+class NotificationTemplate(Base):
+    __tablename__ = "notification_templates"
+
+    id = Column(String(50), primary_key=True)
+    name = Column(String(100), nullable=False)
+    category = Column(String(50), nullable=False)
+    title_template = Column(Text, nullable=False)
+    body_template = Column(Text, nullable=False)
+    image_url = Column(Text, nullable=True)
+    icon = Column(String(50), nullable=True)
+    color = Column(String(20), nullable=True)
+    channels = Column(JSON, nullable=False, default=list)
+    email_subject_template = Column(Text, nullable=True)
+    email_html_template = Column(Text, nullable=True)
+    sms_template = Column(Text, nullable=True)
+    variables = Column(JSON, nullable=True)
+    is_transactional = Column(Boolean, default=False)
+    priority = Column(String(10), default="normal")
+    ttl_hours = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    notifications = relationship("UserNotification", back_populates="template")
+    scheduled_notifications = relationship("ScheduledNotification", back_populates="template")
+
+
+class UserNotification(Base):
+    __tablename__ = "user_notifications"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    template_id = Column(String(50), ForeignKey("notification_templates.id"), nullable=True)
+    title = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)
+    image_url = Column(Text, nullable=True)
+    icon = Column(String(50), nullable=True)
+    category = Column(String(50), nullable=False)
+    subcategory = Column(String(50), nullable=True)
+    action_type = Column(String(30), nullable=True)
+    action_data = Column(JSON, nullable=True)
+    priority = Column(String(10), default="normal")
+    group_key = Column(String(50), nullable=True)
+    is_read = Column(Boolean, default=False)
+    read_at = Column(DateTime, nullable=True)
+    is_seen = Column(Boolean, default=False)
+    seen_at = Column(DateTime, nullable=True)
+    is_dismissed = Column(Boolean, default=False)
+    dismissed_at = Column(DateTime, nullable=True)
+    delivered_via = Column(JSON, default=list)
+    delivery_errors = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    scheduled_for = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="notifications")
+    template = relationship("NotificationTemplate", back_populates="notifications")
+    delivery_logs = relationship("NotificationDeliveryLog", back_populates="notification", cascade="all, delete-orphan")
+
+
+class PushToken(Base):
+    __tablename__ = "push_tokens"
+    __table_args__ = (
+        UniqueConstraint("user_id", "token", name="uq_push_user_token"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(String(512), nullable=False, index=True)
+    token_type = Column(String(20), nullable=False)
+    device_id = Column(String(100), nullable=True)
+    device_name = Column(String(100), nullable=True)
+    platform = Column(String(20), nullable=False)
+    app_version = Column(String(20), nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_used_at = Column(DateTime, nullable=True)
+    failed_count = Column(Integer, default=0)
+    last_failure_at = Column(DateTime, nullable=True)
+    last_failure_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="push_tokens")
+
+
+class NotificationPreference(Base):
+    __tablename__ = "notification_preferences"
+    __table_args__ = (
+        UniqueConstraint("user_id", "category", name="uq_notif_pref_user_category"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    category = Column(String(50), nullable=False)
+    in_app = Column(Boolean, default=True)
+    push = Column(Boolean, default=True)
+    email = Column(Boolean, default=False)
+    sms = Column(Boolean, default=False)
+    max_per_day = Column(Integer, nullable=True)
+    digest_mode = Column(String(20), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="notification_preferences")
+
+
+class NotificationSetting(Base):
+    __tablename__ = "notification_settings"
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    all_notifications_enabled = Column(Boolean, default=True)
+    push_enabled = Column(Boolean, default=True)
+    email_enabled = Column(Boolean, default=True)
+    sms_enabled = Column(Boolean, default=False)
+    quiet_hours_enabled = Column(Boolean, default=False)
+    quiet_hours_start = Column(String(8), nullable=True)
+    quiet_hours_end = Column(String(8), nullable=True)
+    quiet_hours_timezone = Column(String(64), default="Asia/Kolkata")
+    email_digest_enabled = Column(Boolean, default=True)
+    email_digest_frequency = Column(String(20), default="daily")
+    email_digest_time = Column(String(8), default="09:00")
+    preferred_language = Column(String(10), default="en")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="notification_settings")
+
+
+class ScheduledNotification(Base):
+    __tablename__ = "scheduled_notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    segment_id = Column(Integer, nullable=True)
+    template_id = Column(String(50), ForeignKey("notification_templates.id"), nullable=True)
+    title = Column(String(255), nullable=True)
+    body = Column(Text, nullable=True)
+    variables = Column(JSON, nullable=True)
+    scheduled_for = Column(DateTime, nullable=False, index=True)
+    timezone = Column(String(64), default="Asia/Kolkata")
+    is_recurring = Column(Boolean, default=False)
+    recurrence_rule = Column(String(100), nullable=True)
+    recurrence_end_date = Column(Date, nullable=True)
+    last_sent_at = Column(DateTime, nullable=True)
+    next_occurrence = Column(DateTime, nullable=True)
+    status = Column(String(20), default="pending", index=True)
+    sent_at = Column(DateTime, nullable=True)
+    failure_reason = Column(Text, nullable=True)
+    campaign_name = Column(String(100), nullable=True)
+    created_by = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    template = relationship("NotificationTemplate", back_populates="scheduled_notifications")
+
+
+class NotificationDeliveryLog(Base):
+    __tablename__ = "notification_delivery_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    notification_id = Column(String(36), ForeignKey("user_notifications.id", ondelete="CASCADE"), nullable=False, index=True)
+    channel = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False, index=True)
+    provider = Column(String(30), nullable=True)
+    provider_message_id = Column(String(255), nullable=True)
+    error_code = Column(String(50), nullable=True)
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0)
+    sent_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
+    failed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    notification = relationship("UserNotification", back_populates="delivery_logs")
+
+
+class EmailTemplate(Base):
+    __tablename__ = "email_templates"
+
+    id = Column(String(50), primary_key=True)
+    name = Column(String(100), nullable=False)
+    subject_template = Column(Text, nullable=False)
+    html_template = Column(Text, nullable=False)
+    text_template = Column(Text, nullable=True)
+    from_name = Column(String(100), default="ApxMind")
+    from_email = Column(String(120), default="noreply@apxmind.com")
+    reply_to = Column(String(120), nullable=True)
+    variables = Column(JSON, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EmailLog(Base):
+    __tablename__ = "email_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    template_id = Column(String(50), ForeignKey("email_templates.id"), nullable=True)
+    to_email = Column(String(120), nullable=False)
+    subject = Column(String(500), nullable=False)
+    status = Column(String(20), nullable=False, index=True)
+    provider = Column(String(30), default="sendgrid")
+    provider_message_id = Column(String(255), nullable=True)
+    opened_at = Column(DateTime, nullable=True)
+    clicked_at = Column(DateTime, nullable=True)
+    bounced_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class StudyReminder(Base):
+    __tablename__ = "study_reminders"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    reminder_time = Column(String(8), nullable=False)
+    days_of_week = Column(JSON, nullable=False, default=list)
+    timezone = Column(String(64), default="Asia/Kolkata")
+    message = Column(Text, nullable=True)
+    target_type = Column(String(30), nullable=True)
+    target_subject = Column(String(20), nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="study_reminders")
+
+
+# ============================================================================
+# PHASE 4: ADMIN & MODERATION  (15 MODELS)
+# ============================================================================
+
+class AdminRole(Base):
+    __tablename__ = "admin_roles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), unique=True, nullable=False)
+    display_name = Column(String(100), nullable=False)
+    permissions = Column(JSON, nullable=False, default=dict)
+    description = Column(Text, nullable=True)
+    is_system = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    admins = relationship("AdminUser", back_populates="role")
+
+
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(120), unique=True, nullable=False, index=True)
+    password_hash = Column(String(256), nullable=False)
+    name = Column(String(100), nullable=False)
+    avatar_url = Column(Text, nullable=True)
+    phone = Column(String(20), nullable=True)
+    role_id = Column(Integer, ForeignKey("admin_roles.id"), nullable=False, index=True)
+    two_factor_enabled = Column(Boolean, default=False)
+    two_factor_secret = Column(String(128), nullable=True)
+    last_login_at = Column(DateTime, nullable=True)
+    last_login_ip = Column(String(45), nullable=True)
+    failed_login_attempts = Column(Integer, default=0)
+    account_locked_until = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    deactivated_at = Column(DateTime, nullable=True)
+    deactivated_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    deactivation_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    role = relationship("AdminRole", back_populates="admins")
+    sessions = relationship("AdminSession", back_populates="admin", cascade="all, delete-orphan")
+    actions = relationship("AdminAction", back_populates="admin", cascade="all, delete-orphan")
+
+
+class AdminSession(Base):
+    __tablename__ = "admin_sessions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    admin_id = Column(Integer, ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(256), nullable=False, index=True)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    is_revoked = Column(Boolean, default=False)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_activity = Column(DateTime, default=datetime.utcnow)
+
+    admin = relationship("AdminUser", back_populates="sessions")
+
+
+class AdminAction(Base):
+    __tablename__ = "admin_actions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    admin_id = Column(Integer, ForeignKey("admin_users.id"), nullable=False, index=True)
+    action = Column(String(100), nullable=False, index=True)
+    action_category = Column(String(50), nullable=False, index=True)
+    target_type = Column(String(30), nullable=True)
+    target_id = Column(String(64), nullable=True)
+    target_name = Column(String(255), nullable=True)
+    old_value = Column(JSON, nullable=True)
+    new_value = Column(JSON, nullable=True)
+    change_summary = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    status = Column(String(20), default="success")
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    admin = relationship("AdminUser", back_populates="actions")
+
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_number = Column(String(20), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    email = Column(String(120), nullable=False)
+    name = Column(String(100), nullable=True)
+    phone = Column(String(20), nullable=True)
+    subject = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False)
+    category = Column(String(50), nullable=False, index=True)
+    subcategory = Column(String(50), nullable=True)
+    priority = Column(String(20), default="normal")
+    status = Column(String(20), default="open", index=True)
+    assigned_to = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    assigned_at = Column(DateTime, nullable=True)
+    escalated_to = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    escalated_at = Column(DateTime, nullable=True)
+    first_response_at = Column(DateTime, nullable=True)
+    first_response_sla_met = Column(Boolean, nullable=True)
+    resolution_sla_hours = Column(Integer, default=24)
+    resolution_sla_met = Column(Boolean, nullable=True)
+    resolution_summary = Column(Text, nullable=True)
+    resolution_type = Column(String(30), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    satisfaction_rating = Column(Integer, nullable=True)
+    satisfaction_comment = Column(Text, nullable=True)
+    source = Column(String(30), default="app")
+    browser = Column(String(50), nullable=True)
+    os = Column(String(50), nullable=True)
+    app_version = Column(String(20), nullable=True)
+    attachments = Column(JSON, nullable=True)
+    tags = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="support_tickets")
+    responses = relationship("TicketResponse", back_populates="ticket", cascade="all, delete-orphan")
+
+
+class TicketResponse(Base):
+    __tablename__ = "ticket_responses"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_id = Column(Integer, ForeignKey("support_tickets.id", ondelete="CASCADE"), nullable=False, index=True)
+    responder_type = Column(String(20), nullable=False)
+    responder_id = Column(Integer, nullable=True)
+    responder_name = Column(String(100), nullable=True)
+    message = Column(Text, nullable=False)
+    is_internal = Column(Boolean, default=False)
+    attachments = Column(JSON, nullable=True)
+    is_automated = Column(Boolean, default=False)
+    automation_type = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("SupportTicket", back_populates="responses")
+
+
+class CannedResponse(Base):
+    __tablename__ = "canned_responses"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(100), nullable=False)
+    content = Column(Text, nullable=False)
+    category = Column(String(50), nullable=True)
+    tags = Column(JSON, nullable=True)
+    usage_count = Column(Integer, default=0)
+    created_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ContentReport(Base):
+    __tablename__ = "content_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    content_type = Column(String(30), nullable=False, index=True)
+    content_id = Column(String(64), nullable=False, index=True)
+    content_preview = Column(Text, nullable=True)
+    reason = Column(String(50), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(20), default="pending", index=True)
+    reviewed_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    review_notes = Column(Text, nullable=True)
+    action_taken = Column(String(50), nullable=True)
+    action_details = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    reporter = relationship("User", back_populates="content_reports")
+
+
+class UserWarning(Base):
+    __tablename__ = "user_warnings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    warning_type = Column(String(30), nullable=False)
+    severity = Column(String(20), nullable=False)
+    reason = Column(Text, nullable=False)
+    related_content_type = Column(String(30), nullable=True)
+    related_content_id = Column(String(64), nullable=True)
+    report_id = Column(Integer, ForeignKey("content_reports.id"), nullable=True)
+    issued_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="warnings")
+
+
+class UserBan(Base):
+    __tablename__ = "user_bans"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    ban_type = Column(String(30), nullable=False)
+    reason = Column(Text, nullable=False)
+    feature_restricted = Column(String(50), nullable=True)
+    starts_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ends_at = Column(DateTime, nullable=True)
+    warning_count_at_ban = Column(Integer, nullable=True)
+    report_id = Column(Integer, ForeignKey("content_reports.id"), nullable=True)
+    issued_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    appeal_text = Column(Text, nullable=True)
+    appeal_status = Column(String(20), nullable=True)
+    appeal_reviewed_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    appeal_reviewed_at = Column(DateTime, nullable=True)
+    appeal_notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, index=True)
+    lifted_at = Column(DateTime, nullable=True)
+    lifted_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    lift_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="bans")
+
+
+class FeatureFlag(Base):
+    __tablename__ = "feature_flags"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), unique=True, nullable=False, index=True)
+    display_name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    is_enabled = Column(Boolean, default=False, index=True)
+    rollout_percentage = Column(Integer, default=0)
+    rollout_strategy = Column(String(30), nullable=True)
+    target_user_ids = Column(JSON, nullable=True)
+    target_segments = Column(JSON, nullable=True)
+    exclude_user_ids = Column(JSON, nullable=True)
+    enable_at = Column(DateTime, nullable=True)
+    disable_at = Column(DateTime, nullable=True)
+    has_variants = Column(Boolean, default=False)
+    variants = Column(JSON, nullable=True)
+    owner = Column(String(100), nullable=True)
+    jira_ticket = Column(String(50), nullable=True)
+    updated_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    overrides = relationship("FeatureFlagOverride", back_populates="feature", cascade="all, delete-orphan")
+
+
+class FeatureFlagOverride(Base):
+    __tablename__ = "feature_flag_overrides"
+
+    feature_id = Column(Integer, ForeignKey("feature_flags.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    is_enabled = Column(Boolean, nullable=False)
+    variant = Column(String(50), nullable=True)
+    reason = Column(Text, nullable=True)
+    set_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    feature = relationship("FeatureFlag", back_populates="overrides")
+    user = relationship("User", back_populates="feature_flag_overrides")
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(JSON, nullable=False)
+    value_type = Column(String(20), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(50), nullable=False)
+    is_sensitive = Column(Boolean, default=False)
+    updated_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Announcement(Base):
+    __tablename__ = "announcements"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    content_type = Column(String(20), default="text")
+    announcement_type = Column(String(30), nullable=False)
+    display_location = Column(String(30), nullable=True)
+    priority = Column(Integer, default=0)
+    target_all = Column(Boolean, default=True)
+    target_segments = Column(JSON, nullable=True)
+    target_platforms = Column(JSON, nullable=True)
+    starts_at = Column(DateTime, nullable=False)
+    ends_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    is_dismissible = Column(Boolean, default=True)
+    view_count = Column(Integer, default=0)
+    dismiss_count = Column(Integer, default=0)
+    created_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    dismissals = relationship("AnnouncementDismissal", back_populates="announcement", cascade="all, delete-orphan")
+
+
+class AnnouncementDismissal(Base):
+    __tablename__ = "announcement_dismissals"
+
+    announcement_id = Column(Integer, ForeignKey("announcements.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    dismissed_at = Column(DateTime, default=datetime.utcnow)
+
+    announcement = relationship("Announcement", back_populates="dismissals")
+    user = relationship("User", back_populates="announcement_dismissals")

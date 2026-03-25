@@ -87,6 +87,11 @@ def create_app() -> FastAPI:
     from .routes.sse import router as sse_router
     from .routes.recommendations import router as recommendations_router
     from .routes.insights import router as insights_router
+    from .routes.security import router as security_router
+    from .routes.payments import router as payments_router
+    from .routes.notifications import router as notifications_router
+    from .routes.admin import router as admin_router
+    from .routes.support import router as support_router, reports_router
 
     app.include_router(query_router,        prefix="/api/query",        tags=["Query"])
     app.include_router(subjects_router,     prefix="/api/subjects",     tags=["Subjects"])
@@ -105,6 +110,12 @@ def create_app() -> FastAPI:
     app.include_router(sse_router,           prefix="/api/events",       tags=["Events"])
     app.include_router(recommendations_router, prefix="/api/recommendations", tags=["Recommendations"])
     app.include_router(insights_router,      prefix="/api/insights",     tags=["Insights"])
+    app.include_router(security_router,      prefix="/api/security",     tags=["Security"])
+    app.include_router(payments_router,      prefix="/api/payments",     tags=["Payments"])
+    app.include_router(notifications_router, prefix="/api/notifications", tags=["Notifications"])
+    app.include_router(admin_router,         prefix="/api/admin",         tags=["Admin"])
+    app.include_router(support_router,       prefix="/api/support",       tags=["Support"])
+    app.include_router(reports_router,       prefix="/api",               tags=["Reports"])
 
     # ── Health check ────────────────────────────────────────────────────
     @app.get("/health", tags=["System"])
@@ -209,6 +220,61 @@ def create_app() -> FastAPI:
                     "mastery_subject":  "GET /api/insights/mastery/{subject}",
                     "readiness":        "GET /api/insights/readiness",
                     "habits":           "GET /api/insights/habits",
+                },
+                "security": {
+                    "password_reset_request": "POST /api/security/password-reset/request",
+                    "password_reset_confirm": "POST /api/security/password-reset/confirm",
+                    "sessions":               "GET  /api/security/sessions",
+                    "revoke_session":         "POST /api/security/sessions/{session_id}/revoke",
+                    "revoke_others":          "POST /api/security/sessions/revoke-others",
+                    "login_history":          "GET  /api/security/login-history",
+                    "events":                 "GET  /api/security/events",
+                },
+                "payments": {
+                    "plans":                 "GET  /api/payments/plans",
+                    "current_subscription":  "GET  /api/payments/subscriptions/current",
+                    "checkout":              "POST /api/payments/checkout",
+                    "verify":                "POST /api/payments/verify",
+                    "cancel_subscription":   "POST /api/payments/subscriptions/{id}/cancel",
+                    "payments":              "GET  /api/payments/payments",
+                    "invoices":              "GET  /api/payments/invoices",
+                    "promo_validate":        "POST /api/payments/promo/validate",
+                    "wallet":                "GET  /api/payments/wallet",
+                    "wallet_transactions":   "GET  /api/payments/wallet/transactions",
+                },
+                "notifications": {
+                    "list":         "GET    /api/notifications",
+                    "unread_count": "GET    /api/notifications/unread-count",
+                    "mark_read":    "PATCH  /api/notifications/{id}/read",
+                    "mark_all":     "POST   /api/notifications/read-all",
+                    "delete":       "DELETE /api/notifications/{id}",
+                    "preferences":  "GET    /api/notifications/preferences",
+                    "update_prefs": "PUT    /api/notifications/preferences",
+                    "push_add":     "POST   /api/notifications/push-tokens",
+                    "push_delete":  "DELETE /api/notifications/push-tokens/{id}",
+                },
+                "admin": {
+                    "dashboard":            "GET   /api/admin/dashboard",
+                    "users":                "GET   /api/admin/users",
+                    "user_detail":          "GET   /api/admin/users/{id}",
+                    "user_update":          "PATCH /api/admin/users/{id}",
+                    "user_block":           "POST  /api/admin/users/{id}/block",
+                    "tickets":              "GET   /api/admin/tickets",
+                    "ticket_update":        "PATCH /api/admin/tickets/{id}",
+                    "ticket_assign":        "POST  /api/admin/tickets/{id}/assign",
+                    "reports":              "GET   /api/admin/reports",
+                    "report_update":        "PATCH /api/admin/reports/{id}",
+                    "feature_flags":        "GET   /api/admin/feature-flags",
+                    "feature_flag_update":  "PATCH /api/admin/feature-flags/{id}",
+                    "settings":             "GET   /api/admin/settings",
+                    "settings_update":      "PUT   /api/admin/settings",
+                },
+                "support": {
+                    "tickets":       "GET  /api/support/tickets",
+                    "create_ticket": "POST /api/support/tickets",
+                    "get_ticket":    "GET  /api/support/tickets/{id}",
+                    "reply_ticket":  "POST /api/support/tickets/{id}/reply",
+                    "report_content": "POST /api/reports",
                 },
             },
             "status": "operational",
