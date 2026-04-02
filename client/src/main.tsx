@@ -10,7 +10,10 @@ import '@fontsource/space-grotesk/400.css';
 import '@fontsource/space-grotesk/500.css';
 import '@fontsource/space-grotesk/600.css';
 import App from './App.tsx';
+import { initSyncAutoFlush } from './lib/syncService';
 import './index.css';
+
+initSyncAutoFlush();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

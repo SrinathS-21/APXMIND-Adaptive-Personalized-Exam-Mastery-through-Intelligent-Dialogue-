@@ -26,9 +26,9 @@ export function BookReaderPage() {
     const el = document.getElementById('pdf-container');
     if (!el) return;
     if (!document.fullscreenElement) {
-      el.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+      el.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => { });
     } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => { });
     }
   }
 
@@ -36,7 +36,7 @@ export function BookReaderPage() {
     <div className="ui-page-shell space-y-3">
       {/* Breadcrumbs */}
       <Breadcrumbs aria-label="Book reader breadcrumbs">
-        <BreadcrumbItem onPress={() => navigate('/dashboard')}>Dashboard</BreadcrumbItem>
+        <BreadcrumbItem onPress={() => navigate('/home')}>Home</BreadcrumbItem>
         <BreadcrumbItem onPress={() => navigate('/books')}>Books</BreadcrumbItem>
         <BreadcrumbItem>{displayName}</BreadcrumbItem>
       </Breadcrumbs>

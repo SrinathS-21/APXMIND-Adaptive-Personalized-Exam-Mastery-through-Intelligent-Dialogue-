@@ -15,18 +15,33 @@ The smoke suite validates APXMIND API behavior end-to-end:
 ## Primary command
 
 ```powershell
-python scripts/test_full_api.py --base-url http://127.0.0.1:8000 --profile core --seed-if-empty --ensure-recommendation
+python scripts/test_core_learning_flow.py --base-url http://127.0.0.1:8000
 ```
 
 ## Full coverage command
 
 ```powershell
-python scripts/test_full_api.py --base-url http://127.0.0.1:8000 --profile full --include-llm --include-ws --seed-if-empty --ensure-recommendation
+python scripts/test_core_learning_flow.py --base-url http://127.0.0.1:8000 --include-llm
+python scripts/test_sync_offline_replay.py --base-url http://127.0.0.1:8000
+python scripts/test_learning_backlog.py --base-url http://127.0.0.1:8000
+python scripts/verify_full_stack.py --base-url http://127.0.0.1:8000
+python scripts/test_quiz_trainer_compat.py --base-url http://127.0.0.1:8000
 ```
 
 ## One-command local run (starts/stops server automatically)
 
 ```powershell
+scripts\\run_api_smoke.cmd core
+```
+
+By default, this wrapper runs:
+- `test_core_learning_flow.py`
+- `test_sync_offline_replay.py`
+
+Skip offline replay when needed:
+
+```powershell
+set APX_SKIP_SYNC_REPLAY=1
 scripts\\run_api_smoke.cmd core
 ```
 
@@ -38,7 +53,7 @@ Default JSON report path:
 Override:
 
 ```powershell
-python scripts/test_full_api.py --report-json artifacts/my-report.json
+python scripts/test_core_learning_flow.py --base-url http://127.0.0.1:8000 --report-json artifacts/my-report.json
 ```
 
 Optional wrapper toggles (environment variables):
@@ -61,7 +76,7 @@ scripts\\run_api_smoke.cmd full
 Treat skipped checks as failure:
 
 ```powershell
-python scripts/test_full_api.py --strict-skips
+python scripts/test_core_learning_flow.py --base-url http://127.0.0.1:8000
 ```
 
 ## CI workflow

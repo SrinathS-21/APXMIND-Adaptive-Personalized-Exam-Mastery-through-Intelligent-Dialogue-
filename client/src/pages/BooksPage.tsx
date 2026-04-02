@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Card,
   CardBody,
-  Button,
   Chip,
   Accordion,
   AccordionItem,
@@ -193,7 +192,7 @@ export function BooksPage() {
   }
 
   return (
-    <motion.div variants={container} initial="hidden" animate="show" className="max-w-4xl mx-auto space-y-5">
+    <motion.div variants={container} initial="hidden" animate="show" className="max-w-4xl mx-auto space-y-5 md:pt-4 lg:pt-6">
       <motion.div variants={item}>
         <h1 className="ui-page-title">
           <BookOpen className="w-6 h-6 text-success" />
@@ -269,7 +268,7 @@ export function BooksPage() {
                         </div>
                         <span
                           aria-hidden="true"
-                          className="inline-flex items-center justify-center h-8 w-8 rounded-[var(--r-sm)]"
+                          className="inline-flex items-center justify-center h-8 w-8 rounded-(--r-sm)"
                           style={{ color: 'var(--text-faint)' }}
                         >
                           <ExternalLink className="w-3 h-3" />

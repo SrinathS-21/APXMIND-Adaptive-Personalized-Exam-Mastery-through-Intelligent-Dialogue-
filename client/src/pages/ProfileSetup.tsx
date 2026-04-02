@@ -57,7 +57,7 @@ export function ProfileSetup() {
 
   // Form state
   const [name, setName] = useState('');
-  
+
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dob, setDob] = useState<CalendarDate | null>(null);
@@ -125,11 +125,11 @@ export function ProfileSetup() {
   async function handleFinish() {
     if (!validateStep()) return;
     setIsSubmitting(true);
-    
+
     // Default dob to a default properly formatted if they skip or it throws
     const dobString = dob
-        ? `${dob.year}-${String(dob.month).padStart(2, '0')}-${String(dob.day).padStart(2, '0')}`
-        : '2000-01-01'; // Default
+      ? `${dob.year}-${String(dob.month).padStart(2, '0')}-${String(dob.day).padStart(2, '0')}`
+      : '2000-01-01'; // Default
 
     const data = {
       name: name.trim(),
@@ -150,16 +150,16 @@ export function ProfileSetup() {
       if (res.data.success && res.data.token) {
         localStorage.setItem('APXMIND_token', res.data.token);
         setProfile(normalizeApiUserProfile(res.data.user));
-        navigate('/dashboard', { replace: true });
+        navigate('/home', { replace: true });
       }
     } catch (err: unknown) {
       console.error(err);
       const error = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
       if (error.response?.status === 409) {
-         setErrors(prev => ({ ...prev, name: 'Name already exists. Please choose another.' }));
-         setStep(0); // push back to step 0
+        setErrors(prev => ({ ...prev, name: 'Name already exists. Please choose another.' }));
+        setStep(0); // push back to step 0
       } else {
-         alert('Registration failed: ' + (error.response?.data?.detail || error.message || 'Unknown error'));
+        alert('Registration failed: ' + (error.response?.data?.detail || error.message || 'Unknown error'));
       }
     } finally {
       setIsSubmitting(false);
@@ -223,20 +223,18 @@ export function ProfileSetup() {
                   disabled={i > step}
                 >
                   <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${
-                      isActive
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${isActive
                         ? 'bg-accent text-text-primary shadow-lg scale-110'
                         : isDone
                           ? 'bg-bg-2 text-accent border border-accent/50 cursor-pointer hover:scale-105'
                           : 'bg-bg-2 text-text-muted border border-border-default'
-                    }`}
+                      }`}
                   >
                     {isDone ? <CheckCircle2 className="w-5 h-5" /> : <Icon className="w-5 h-5" />}
                   </div>
                   <span
-                    className={`text-[11px] font-medium transition-colors hidden sm:block ${
-                      isActive ? 'text-accent' : isDone ? 'text-accent/70' : 'text-text-faint'
-                    }`}
+                    className={`text-[11px] font-medium transition-colors hidden sm:block ${isActive ? 'text-accent' : isDone ? 'text-accent/70' : 'text-text-faint'
+                      }`}
                   >
                     {s}
                   </span>
@@ -367,11 +365,10 @@ export function ProfileSetup() {
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={() => setAttemptNumber(n)}
-                            className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                              attemptNumber === n
+                            className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${attemptNumber === n
                                 ? 'bg-accent text-text-primary shadow-lg'
                                 : 'bg-bg-3 text-text-secondary border border-border-default hover:border-accent hover:text-text-primary'
-                            }`}
+                              }`}
                           >
                             {n === 3 ? '3+' : n === 1 ? '1st' : '2nd'}
                           </motion.button>
@@ -455,11 +452,10 @@ export function ProfileSetup() {
                               onClick={() =>
                                 toggleSubject(s.key, strongSubjects, setStrongSubjects, weakSubjects, setWeakSubjects)
                               }
-                              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                                selected
+                              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${selected
                                   ? 'bg-accent/20 text-accent border border-accent/60'
                                   : 'bg-bg-3 text-text-muted border border-border-default hover:border-accent/40 hover:text-text-secondary'
-                              }`}
+                                }`}
                             >
                               {s.icon}
                               {s.label}
@@ -484,11 +480,10 @@ export function ProfileSetup() {
                               onClick={() =>
                                 toggleSubject(s.key, weakSubjects, setWeakSubjects, strongSubjects, setStrongSubjects)
                               }
-                              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                                selected
+                              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${selected
                                   ? 'bg-accent/20 text-accent border border-accent/60'
                                   : 'bg-bg-3 text-text-muted border border-border-default hover:border-accent/40 hover:text-text-secondary'
-                              }`}
+                                }`}
                             >
                               {s.icon}
                               {s.label}
@@ -547,7 +542,7 @@ export function ProfileSetup() {
                   onPress={handleBack}
                   isDisabled={step === 0}
                   startContent={<ArrowLeft className="w-4 h-4" />}
-                    className="text-text-secondary bg-bg-3 border border-border-default"
+                  className="text-text-secondary bg-bg-3 border border-border-default"
                 >
                   Back
                 </Button>

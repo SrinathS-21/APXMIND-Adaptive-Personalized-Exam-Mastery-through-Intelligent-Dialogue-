@@ -12,7 +12,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...api.middleware.auth import get_current_user
@@ -21,12 +21,18 @@ from ...api.schemas import (
     DailyProgressResponse,
     DashboardSummaryResponse,
     GamificationSnapshotResponse,
+    NextBestActionOut,
+    NextBestActionsResponse,
     RecordStudyMinutesRequest,
 )
 from ...db.gamification import append_event, award_xp_for_event
 from ...db.models import (
     DailyProgress,
     LevelDefinition,
+    LearningRecommendation,
+    LearningSession,
+    PlannerTask,
+    SpacedReview,
     User,
     UserBadge,
     UserGamificationSnapshot,
@@ -86,6 +92,39 @@ async def _get_or_create_snapshot(
     return snap
 
 
+def _subject_label(subject: str | None) -> str:
+    if not subject:
+        return "your subject"
+    return subject.strip().capitalize()
+
+
+def _recommendation_route(rec_type: str | None, subject: str | None) -> str:
+    kind = (rec_type or "").strip().lower()
+    sub = (subject or "").strip().lower()
+
+    if kind in {"lesson", "new_learning"}:
+        return f"/subject/{sub}" if sub else "/books"
+    if kind == "mini_set":
+        return "/mini-set"
+    if kind in {"stamina", "stamina_drill"}:
+        return "/exam/stamina"
+    if kind == "quiz":
+        return f"/subject/{sub}/quiz" if sub else "/learn-sessions"
+    if kind in {"revision", "spaced_review"}:
+        return "/study-plan"
+    if kind in {"daily_plan_task", "planner", "routine"}:
+        return "/study-plan"
+    return "/learn-sessions"
+
+
+def _target_minutes(user: User) -> int:
+    if user.daily_study_target_hours and user.daily_study_target_hours > 0:
+        return int(user.daily_study_target_hours * 60)
+    if user.daily_study_target and user.daily_study_target > 0:
+        return int(user.daily_study_target * 60)
+    return 240
+
+
 # ---------------------------------------------------------------------------
 # GET /api/dashboard/summary
 # ---------------------------------------------------------------------------
@@ -127,6 +166,265 @@ async def get_dashboard_summary(
         gamification=_snap_to_schema(snap, level_label),
         today=_dp_to_schema(dp, today),
         badges_count=badges_count,
+    )
+
+
+@router.get(
+    "/next-actions",
+    response_model=NextBestActionsResponse,
+    summary="Dynamic next best actions for Home dashboard",
+)
+async def get_next_best_actions(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    now = datetime.utcnow()
+    today = date.today()
+
+    progress_result = await db.execute(
+        select(DailyProgress).where(
+            DailyProgress.user_id == user.id,
+            DailyProgress.date == today,
+        )
+    )
+    today_progress = progress_result.scalar_one_or_none()
+    studied_minutes_today = today_progress.study_minutes if today_progress else 0
+
+    active_session_result = await db.execute(
+        select(LearningSession)
+        .where(
+            LearningSession.user_id == user.id,
+            LearningSession.ended_at.is_(None),
+        )
+        .order_by(LearningSession.started_at.desc())
+        .limit(1)
+    )
+    active_session = active_session_result.scalar_one_or_none()
+
+    latest_session_result = await db.execute(
+        select(LearningSession)
+        .where(LearningSession.user_id == user.id)
+        .order_by(LearningSession.started_at.desc())
+        .limit(1)
+    )
+    latest_session = latest_session_result.scalar_one_or_none()
+
+    due_reviews_count_result = await db.execute(
+        select(func.count())
+        .select_from(SpacedReview)
+        .where(
+            SpacedReview.user_id == user.id,
+            SpacedReview.status == "active",
+            SpacedReview.due_at <= now,
+        )
+    )
+    due_reviews_count = int(due_reviews_count_result.scalar() or 0)
+
+    next_due_review_result = await db.execute(
+        select(SpacedReview)
+        .where(
+            SpacedReview.user_id == user.id,
+            SpacedReview.status == "active",
+            SpacedReview.due_at <= now,
+        )
+        .order_by(SpacedReview.due_at.asc())
+        .limit(1)
+    )
+    next_due_review = next_due_review_result.scalar_one_or_none()
+
+    planner_result = await db.execute(
+        select(
+            func.count().label("pending_count"),
+            func.coalesce(func.sum(PlannerTask.recommended_minutes), 0).label("pending_minutes"),
+        ).where(
+            PlannerTask.user_id == user.id,
+            PlannerTask.task_date == today,
+            PlannerTask.status == "pending",
+        )
+    )
+    planner_row = planner_result.one()
+    pending_today_count = int(planner_row.pending_count or 0)
+    pending_today_minutes = int(planner_row.pending_minutes or 0)
+
+    recommendation_result = await db.execute(
+        select(LearningRecommendation)
+        .where(
+            LearningRecommendation.user_id == user.id,
+            LearningRecommendation.status == "active",
+        )
+        .order_by(
+            LearningRecommendation.priority_score.desc(),
+            LearningRecommendation.generated_at.desc(),
+        )
+        .limit(1)
+    )
+    top_recommendation = recommendation_result.scalar_one_or_none()
+
+    actions: list[NextBestActionOut] = []
+
+    if active_session:
+        subject = _subject_label(active_session.subject)
+        actions.append(
+            NextBestActionOut(
+                key="continue_learning",
+                title="Continue Learning",
+                description=f"Resume your active {subject} session and keep your momentum.",
+                cta_label="Resume Session",
+                cta_route="/learn-sessions",
+                accent="accent",
+                action_kind="learning",
+                priority=100,
+                metric_label="Status",
+                metric_value="In progress",
+            )
+        )
+    elif latest_session:
+        subject = _subject_label(latest_session.subject)
+        actions.append(
+            NextBestActionOut(
+                key="continue_learning",
+                title="Continue Learning",
+                description=f"Pick up from your latest {subject} session in one click.",
+                cta_label="Resume Chapter",
+                cta_route="/learn-sessions",
+                accent="accent",
+                action_kind="learning",
+                priority=95,
+                metric_label="Last subject",
+                metric_value=subject,
+            )
+        )
+    else:
+        actions.append(
+            NextBestActionOut(
+                key="continue_learning",
+                title="Continue Learning",
+                description="Start a focused chapter now and build your daily streak.",
+                cta_label="Start Learning",
+                cta_route="/books",
+                accent="accent",
+                action_kind="learning",
+                priority=85,
+            )
+        )
+
+    if due_reviews_count > 0:
+        minutes = max(10, min(30, due_reviews_count * 5))
+        if next_due_review and next_due_review.topic:
+            due_desc = (
+                f"{due_reviews_count} review items are due. Start with {next_due_review.topic} "
+                f"({_subject_label(next_due_review.subject)})."
+            )
+        else:
+            due_desc = f"{due_reviews_count} review items are due. Complete a short revision sprint now."
+
+        actions.append(
+            NextBestActionOut(
+                key="smart_revision",
+                title="Smart Revision",
+                description=due_desc,
+                cta_label=f"Revise {minutes} Minutes",
+                cta_route="/study-plan",
+                accent="purple",
+                action_kind="revision",
+                priority=90,
+                metric_label="Due now",
+                metric_value=str(due_reviews_count),
+            )
+        )
+    elif top_recommendation and (top_recommendation.rec_type or "").lower() in {
+        "revision",
+        "mini_set",
+        "quiz",
+        "spaced_review",
+    }:
+        actions.append(
+            NextBestActionOut(
+                key="smart_revision",
+                title="Smart Revision",
+                description=top_recommendation.reason,
+                cta_label="Start Practice",
+                cta_route=_recommendation_route(top_recommendation.rec_type, top_recommendation.subject),
+                accent="purple",
+                action_kind="revision",
+                priority=80,
+                metric_label="Focus",
+                metric_value=_subject_label(top_recommendation.subject),
+            )
+        )
+    else:
+        actions.append(
+            NextBestActionOut(
+                key="smart_revision",
+                title="Smart Revision",
+                description="Take a short weak-area quiz to improve retention consistency.",
+                cta_label="Revise 15 Minutes",
+                cta_route="/study-plan",
+                accent="purple",
+                action_kind="revision",
+                priority=70,
+            )
+        )
+
+    target_minutes = _target_minutes(user)
+    remaining_minutes = max(0, target_minutes - studied_minutes_today)
+
+    if pending_today_count > 0:
+        actions.append(
+            NextBestActionOut(
+                key="plan_ahead",
+                title="Plan Ahead",
+                description=(
+                    f"You still have {pending_today_count} planned tasks pending today "
+                    f"(~{pending_today_minutes} min)."
+                ),
+                cta_label="Open Study Plan",
+                cta_route="/study-plan",
+                accent="amber",
+                action_kind="planning",
+                priority=85,
+                metric_label="Pending",
+                metric_value=str(pending_today_count),
+            )
+        )
+    elif top_recommendation and (top_recommendation.rec_type or "").lower() in {
+        "daily_plan_task",
+        "planner",
+        "routine",
+    }:
+        actions.append(
+            NextBestActionOut(
+                key="plan_ahead",
+                title="Plan Ahead",
+                description=top_recommendation.reason,
+                cta_label="Open Study Plan",
+                cta_route=_recommendation_route(top_recommendation.rec_type, top_recommendation.subject),
+                accent="amber",
+                action_kind="planning",
+                priority=75,
+            )
+        )
+    else:
+        if remaining_minutes > 0:
+            description = f"Block {remaining_minutes} more minutes to hit today's study target."
+        else:
+            description = "You are on pace today. Schedule your first deep-focus block for tomorrow."
+        actions.append(
+            NextBestActionOut(
+                key="plan_ahead",
+                title="Plan Ahead",
+                description=description,
+                cta_label="Open Study Plan",
+                cta_route="/study-plan",
+                accent="amber",
+                action_kind="planning",
+                priority=65,
+            )
+        )
+
+    return NextBestActionsResponse(
+        generated_at=now.isoformat(),
+        actions=actions,
     )
 
 

@@ -1,18 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
-
-interface ThemeContextType {
-  theme: 'dark' | 'light';
-  isDark: boolean;
-  setTheme: (theme: 'dark' | 'light') => void;
-  toggleTheme: () => void;
-}
-
-const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+import { useEffect, useMemo, useState, ReactNode } from 'react';
+import { AppTheme, ThemeContext } from './theme-context';
 
 const STORAGE_KEY = 'APXMIND_theme';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<'dark' | 'light'>(() => {
+  const [theme, setThemeState] = useState<AppTheme>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === 'light' || saved === 'dark') return saved;
     return 'dark';
@@ -26,7 +18,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 
-  const setTheme = (nextTheme: 'dark' | 'light') => {
+  const setTheme = (nextTheme: AppTheme) => {
     setThemeState(nextTheme);
   };
 
@@ -49,10 +41,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme() {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
-  return ctx;
 }

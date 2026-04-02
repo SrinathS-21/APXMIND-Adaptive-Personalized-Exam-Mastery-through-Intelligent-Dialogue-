@@ -15,24 +15,31 @@ start "apx-api-smoke-server" /min cmd /c "cd /d %~dp0.. && python main.py --host
 
 timeout /t 5 /nobreak >nul
 
-set CMD=python scripts/test_full_api.py --base-url %BASE_URL% --profile %MODE% --report-json %REPORT_JSON%
+set CORE_CMD=python scripts/test_core_learning_flow.py --base-url %BASE_URL% --profile %MODE% --report-json %REPORT_JSON%
 if not "%APX_INCLUDE_LLM%"=="1" goto :skip_llm
-set CMD=%CMD% --include-llm
+set CORE_CMD=%CORE_CMD% --include-llm
 :skip_llm
-if not "%APX_INCLUDE_WS%"=="1" goto :skip_ws
-set CMD=%CMD% --include-ws
-:skip_ws
-if "%APX_NO_SEED%"=="1" goto :skip_seed
-set CMD=%CMD% --seed-if-empty
-:skip_seed
-if "%APX_NO_RECOMMENDATION%"=="1" goto :skip_rec
-set CMD=%CMD% --ensure-recommendation
-:skip_rec
-if "%APX_STRICT_SKIPS%"=="1" set CMD=%CMD% --strict-skips
 
-echo Running smoke checks: %CMD%
-%CMD%
-set EXIT_CODE=%ERRORLEVEL%
+echo Running core smoke checks: %CORE_CMD%
+%CORE_CMD%
+set CORE_EXIT_CODE=%ERRORLEVEL%
+
+set SYNC_EXIT_CODE=0
+if not "%CORE_EXIT_CODE%"=="0" goto :after_sync
+
+if "%APX_SKIP_SYNC_REPLAY%"=="1" (
+	echo Skipping offline replay smoke because APX_SKIP_SYNC_REPLAY=1
+	goto :after_sync
+)
+
+set SYNC_CMD=python scripts/test_sync_offline_replay.py --base-url %BASE_URL%
+echo Running offline replay sync smoke: %SYNC_CMD%
+%SYNC_CMD%
+set SYNC_EXIT_CODE=%ERRORLEVEL%
+
+:after_sync
+set EXIT_CODE=%CORE_EXIT_CODE%
+if "%EXIT_CODE%"=="0" set EXIT_CODE=%SYNC_EXIT_CODE%
 
 echo Stopping API server...
 taskkill /FI "WINDOWTITLE eq apx-api-smoke-server*" /F >nul 2>nul

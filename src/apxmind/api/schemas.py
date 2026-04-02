@@ -155,6 +155,7 @@ class AnswerSubmitRequest(BaseModel):
     quiz_id: str
     question_id: int
     user_answer: str
+    options: Optional[List[str]] = None
     question_text: Optional[str] = None
     correct_answer: Optional[str] = None
 
@@ -316,6 +317,25 @@ class DashboardSummaryResponse(BaseModel):
     badges_count: int = 0
 
 
+class NextBestActionOut(BaseModel):
+    key: str
+    title: str
+    description: str
+    cta_label: str
+    cta_route: str
+    accent: str = "accent"
+    action_kind: str = "general"
+    priority: int = 0
+    metric_label: Optional[str] = None
+    metric_value: Optional[str] = None
+
+
+class NextBestActionsResponse(BaseModel):
+    success: bool = True
+    generated_at: str
+    actions: List[NextBestActionOut] = Field(default_factory=list)
+
+
 class RecordStudyMinutesRequest(BaseModel):
     minutes: int = Field(..., ge=1, le=720)
     subject: SubjectEnum
@@ -370,6 +390,7 @@ class StartQuizResponse(BaseModel):
 class SubmitAnswerRequest(BaseModel):
     question_id: int
     user_answer: str = Field(..., min_length=1)
+    confidence_level: Optional[int] = Field(default=None, ge=1, le=5)
 
 
 class SubmitAnswerOut(BaseModel):
@@ -386,6 +407,7 @@ class SubmitAnswerResponse(BaseModel):
 
 class UpdateAnswerRequest(BaseModel):
     user_answer: str = Field(..., min_length=1)
+    confidence_level: Optional[int] = Field(default=None, ge=1, le=5)
 
 
 class QuizResultQuestion(BaseModel):
@@ -593,6 +615,7 @@ class TopicMasteryOut(BaseModel):
     topic: str
     mastery_score: float = 0.0
     confidence: float = 0.0
+    state_label: str = "Not Started"
     last_assessed_at: Optional[str] = None
 
 
@@ -600,6 +623,73 @@ class TopicMasteryListResponse(BaseModel):
     success: bool = True
     mastery: List[TopicMasteryOut] = Field(default_factory=list)
     total: int = 0
+
+
+class TopicRiskOut(BaseModel):
+    subject: str
+    topic: str
+    mastery_score: float = 0.0
+    confidence: float = 0.0
+    state_label: str = "Not Started"
+    repeated_mistakes: int = 0
+    days_since_last_assessed: int = 0
+    risk_score: float = 0.0
+
+
+class TopicRiskListResponse(BaseModel):
+    success: bool = True
+    risk_topics: List[TopicRiskOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class CalibrationTrendPointOut(BaseModel):
+    date: str
+    mean_confidence: float = 0.0
+    accuracy_percent: float = 0.0
+    confidence_accuracy_gap: float = 0.0
+    sample_count: int = 0
+
+
+class CalibrationInsightsResponse(BaseModel):
+    success: bool = True
+    days: int
+    sample_count: int = 0
+    mean_confidence: float = 0.0
+    accuracy_percent: float = 0.0
+    confidence_accuracy_gap: float = 0.0
+    confident_wrong_rate: float = 0.0
+    trend: List[CalibrationTrendPointOut] = Field(default_factory=list)
+
+
+class TrendPointOut(BaseModel):
+    date: str
+    value: float
+
+
+class WeeklyReportSummaryOut(BaseModel):
+    retention_score: float = 0.0
+    accuracy_percent: float = 0.0
+    speed_qph: float = 0.0
+    consistency_score: float = 0.0
+    active_days: int = 0
+    period_days: int = 7
+
+
+class WeeklyReportExportOut(BaseModel):
+    format: str = "json"
+    content: str
+
+
+class WeeklyReportResponse(BaseModel):
+    success: bool = True
+    start_date: str
+    end_date: str
+    summary: WeeklyReportSummaryOut
+    retention_trend: List[TrendPointOut] = Field(default_factory=list)
+    accuracy_trend: List[TrendPointOut] = Field(default_factory=list)
+    speed_trend: List[TrendPointOut] = Field(default_factory=list)
+    risk_topics: List[TopicRiskOut] = Field(default_factory=list)
+    export: WeeklyReportExportOut
 
 
 # ============================================================================
@@ -661,3 +751,255 @@ class HabitSignalOut(BaseModel):
 class HabitSignalsResponse(BaseModel):
     success: bool = True
     signals: List[HabitSignalOut] = Field(default_factory=list)
+
+
+# ============================================================================
+# RETRIEVAL / SPACED REVISION
+# ============================================================================
+
+class LessonRecallRequest(BaseModel):
+    lesson_id: Optional[int] = None
+    subject: Optional[SubjectEnum] = None
+    topic: str = Field(..., min_length=1, max_length=160)
+    response_text: str = Field(..., min_length=1, max_length=4000)
+    self_score: int = Field(..., ge=0, le=100)
+    time_taken_sec: Optional[int] = Field(default=None, ge=1, le=7200)
+
+
+class LessonRecallResponse(BaseModel):
+    success: bool = True
+    score_band: str
+    next_review_due: str
+    spaced_review_id: str
+    gaps: List[str] = Field(default_factory=list)
+
+
+class SpacedReviewItemOut(BaseModel):
+    id: str
+    topic: str
+    subject: Optional[str] = None
+    source_type: str
+    source_id: str
+    interval_step: int
+    due_at: str
+    last_result: Optional[str] = None
+    streak: int = 0
+
+
+class SpacedQueueResponse(BaseModel):
+    success: bool = True
+    due_items: List[SpacedReviewItemOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class CompleteSpacedReviewRequest(BaseModel):
+    result: str = Field(..., pattern=r"^(correct|partial|incorrect)$")
+    confidence_level: Optional[int] = Field(default=None, ge=1, le=5)
+
+
+class CompleteSpacedReviewResponse(BaseModel):
+    success: bool = True
+    review_id: str
+    interval_step: int
+    next_due_at: str
+    streak: int
+
+
+# ============================================================================
+# ERROR NOTEBOOK / MISTAKE CARDS
+# ============================================================================
+
+class MistakeCardOut(BaseModel):
+    id: str
+    subject: Optional[str] = None
+    topic: Optional[str] = None
+    source_type: Optional[str] = None
+    source_id: Optional[str] = None
+    error_reason_code: str
+    prompt_snapshot: str
+    correct_explanation: Optional[str] = None
+    times_seen: int
+    times_repeated: int
+    last_seen_at: str
+    next_due_at: Optional[str] = None
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class MistakeCardListResponse(BaseModel):
+    success: bool = True
+    cards: List[MistakeCardOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class UpdateMistakeCardRequest(BaseModel):
+    status: Optional[str] = Field(default=None, pattern=r"^(active|resolved)$")
+    error_reason_code: Optional[str] = Field(default=None, max_length=40)
+    correct_explanation: Optional[str] = None
+    next_due_at: Optional[str] = None  # ISO datetime
+
+
+class UpdateMistakeCardResponse(BaseModel):
+    success: bool = True
+    card: MistakeCardOut
+
+
+# ============================================================================
+# ADAPTIVE PLANNER
+# ============================================================================
+
+class PlannerTaskOut(BaseModel):
+    id: str
+    task_date: str
+    task_type: str
+    subject: Optional[str] = None
+    topic: Optional[str] = None
+    recommended_minutes: int
+    priority_score: float
+    status: str
+    completed_at: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class GenerateDailyPlanRequest(BaseModel):
+    date: Optional[str] = None  # YYYY-MM-DD
+    available_minutes: int = Field(..., ge=30, le=960)
+
+
+class StrategistPlanRequest(BaseModel):
+    date: Optional[str] = None  # YYYY-MM-DD
+
+
+class GenerateDailyPlanResponse(BaseModel):
+    success: bool = True
+    date: str
+    generated_count: int
+    available_minutes: int
+    planned_minutes: int
+    tasks: List[PlannerTaskOut] = Field(default_factory=list)
+
+
+class PlannerDailyResponse(BaseModel):
+    success: bool = True
+    date: str
+    total: int
+    planned_minutes: int
+    completed_count: int
+    skipped_count: int
+    pending_count: int
+    day_adherence_percent: float = 0.0
+    weekly_adherence_percent: float = 0.0
+    tasks: List[PlannerTaskOut] = Field(default_factory=list)
+
+
+class UpdatePlannerTaskRequest(BaseModel):
+    status: str = Field(..., pattern=r"^(pending|completed|skipped)$")
+
+
+class UpdatePlannerTaskResponse(BaseModel):
+    success: bool = True
+    task: PlannerTaskOut
+    rescheduled_task: Optional[PlannerTaskOut] = None
+
+
+# ============================================================================
+# EXAM STAMINA
+# ============================================================================
+
+class StartStaminaSessionRequest(BaseModel):
+    mode: str = Field(default="mixed", pattern=r"^(mixed|subject)$")
+    subject: Optional[SubjectEnum] = None
+    topic: Optional[str] = Field(default=None, max_length=160)
+    duration_minutes: int = Field(default=30, ge=10, le=180)
+    planned_questions: int = Field(default=30, ge=5, le=300)
+    block_count: int = Field(default=3, ge=1, le=6)
+
+
+class StaminaBlockPlanOut(BaseModel):
+    block_no: int
+    planned_minutes: int
+    planned_questions: int
+
+
+class StartStaminaSessionResponse(BaseModel):
+    success: bool = True
+    session_id: str
+    mode: str
+    subject: Optional[str] = None
+    topic: Optional[str] = None
+    duration_minutes: int
+    planned_questions: int
+    started_at: str
+    block_plan: List[StaminaBlockPlanOut] = Field(default_factory=list)
+
+
+class FinishStaminaBlockResultIn(BaseModel):
+    block_no: int = Field(..., ge=1, le=12)
+    attempted_questions: int = Field(..., ge=0, le=500)
+    correct_answers: int = Field(..., ge=0, le=500)
+    elapsed_sec: int = Field(..., ge=1, le=7200)
+    dominant_error: Optional[str] = Field(default=None, pattern=r"^(formula_error|concept_confusion|misread|time_pressure|other)$")
+
+
+class FinishStaminaSessionRequest(BaseModel):
+    block_results: List[FinishStaminaBlockResultIn] = Field(default_factory=list)
+    notes: Optional[str] = Field(default=None, max_length=1200)
+
+
+class FinishStaminaSessionResponse(BaseModel):
+    success: bool = True
+    session_id: str
+    completed_at: str
+    total_questions: int
+    correct_answers: int
+    score_percent: float
+    pacing_qph: float
+    fatigue_accuracy_dip: float
+    fatigue_detected: bool
+    error_clusters: dict = Field(default_factory=dict)
+    xp_awarded: int = 0
+
+
+# ============================================================================
+# SYNC JOURNAL
+# ============================================================================
+
+class SyncOperationIn(BaseModel):
+    operation_type: str = Field(..., pattern=r"^(create|update|delete|event)$")
+    entity_type: str = Field(..., min_length=1, max_length=40)
+    entity_id: Optional[str] = Field(default=None, max_length=80)
+    payload: dict = Field(default_factory=dict)
+    idempotency_key: str = Field(..., min_length=1, max_length=160)
+
+
+class SyncBatchRequest(BaseModel):
+    operations: List[SyncOperationIn] = Field(..., min_length=1, max_length=500)
+
+
+class SyncBatchResultItemOut(BaseModel):
+    idempotency_key: str
+    status: str
+    journal_id: Optional[str] = None
+    attempt_count: int = 0
+    retryable: bool = False
+    message: Optional[str] = None
+
+
+class SyncBatchResponse(BaseModel):
+    success: bool = True
+    accepted_count: int = 0
+    duplicate_count: int = 0
+    failed_count: int = 0
+    results: List[SyncBatchResultItemOut] = Field(default_factory=list)
+
+
+class SyncStatusResponse(BaseModel):
+    success: bool = True
+    pending_count: int = 0
+    synced_count: int = 0
+    failed_count: int = 0
+    total_count: int = 0
+    backlog_count: int = 0
+    latest_synced_at: Optional[str] = None

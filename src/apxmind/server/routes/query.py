@@ -59,7 +59,11 @@ async def process_query(request: QueryRequest):
         if intent in ("simple", "retrieval"):
             # TIER-1: Retrieval-based QA
             tier1_start = time.time()
-            vectorstore = get_vectorstore(detected_subject)
+            vectorstore = (
+                get_vectorstore(detected_subject)
+                or get_vectorstore(subject)
+                or get_vectorstore("question_bank")
+            )
 
             result = retriever_agent(
                 query=query, vectorstore=vectorstore, llm=llm, subject=detected_subject

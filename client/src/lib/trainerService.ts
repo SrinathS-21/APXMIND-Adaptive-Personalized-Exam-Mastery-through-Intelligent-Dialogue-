@@ -1,7 +1,7 @@
 // Trainer API Service
 // Handles quiz generation and answer evaluation
 
-import apiClient, { API_ENDPOINTS } from './api';
+import apiClient, { API_ENDPOINTS, getApiErrorMessage } from './api';
 
 export type QuizDifficulty = 'easy' | 'medium' | 'hard';
 
@@ -44,6 +44,7 @@ export interface SubmitAnswerRequest {
   quiz_id: string;
   question_id: number;
   user_answer: string;
+  options?: string[];
   correct_answer: string;
   question_text?: string;
 }
@@ -54,6 +55,15 @@ export interface SubmitAnswerResponse {
   explanation: string;
   correct_answer?: string;
   error?: string;
+}
+
+interface SubmitAnswerBackendResponse {
+  success: boolean;
+  evaluation?: {
+    correct?: boolean;
+    explanation?: string;
+    correct_answer?: string;
+  };
 }
 
 // Generate quiz for a subject
@@ -77,7 +87,7 @@ export const generateQuiz = async (
     );
 
     return response.data;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to generate quiz:', error);
     return {
       success: false,
@@ -89,7 +99,7 @@ export const generateQuiz = async (
         total_questions: 0,
         time_limit: 0,
       },
-      error: error.response?.data?.error || 'Quiz generation failed',
+      error: getApiErrorMessage(error, 'Quiz generation failed'),
     };
   }
 };
@@ -100,18 +110,20 @@ export const submitAnswer = async (
   questionId: number,
   userAnswer: string,
   correctAnswer: string,
-  questionText?: string
+  questionText?: string,
+  options?: string[]
 ): Promise<SubmitAnswerResponse> => {
   try {
     const requestData: SubmitAnswerRequest = {
       quiz_id: quizId,
       question_id: questionId,
       user_answer: userAnswer,
+      options,
       correct_answer: correctAnswer,
       question_text: questionText,
     };
 
-    const response = await apiClient.post(
+    const response = await apiClient.post<SubmitAnswerBackendResponse>(
       API_ENDPOINTS.submitAnswer,
       requestData
     );
@@ -125,13 +137,13 @@ export const submitAnswer = async (
       explanation: evaluation.explanation || '',
       correct_answer: evaluation.correct_answer || '',
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to submit answer:', error);
     return {
       success: false,
       correct: false,
       explanation: 'Failed to evaluate answer. Please try again.',
-      error: error.response?.data?.error || 'Answer submission failed',
+      error: getApiErrorMessage(error, 'Answer submission failed'),
     };
   }
 };

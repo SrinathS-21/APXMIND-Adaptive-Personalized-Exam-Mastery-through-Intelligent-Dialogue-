@@ -3,7 +3,6 @@ APXMIND Account Demo Seed
 =========================
 
 Seeds demo data for account-related features:
-- Subscription plans
 - Notifications settings/preferences
 - Sample user notifications
 - Sample security events
@@ -29,76 +28,10 @@ from src.apxmind.db.models import (
     NotificationPreference,
     NotificationSetting,
     SecurityEvent,
-    SubscriptionPlan,
     User,
     UserNotification,
     UserSession,
 )
-
-
-PLAN_DEFINITIONS = [
-    {
-        "code": "starter_monthly",
-        "name": "starter",
-        "display_name": "Starter",
-        "description": "Core preparation features for consistent daily study.",
-        "price_inr": 199,
-        "original_price_inr": 299,
-        "billing_period": "monthly",
-        "duration_days": 30,
-        "features": {"mock_tests": 5, "ai_queries_per_day": 30, "analytics": "basic"},
-        "is_featured": False,
-        "badge_text": "Most Affordable",
-        "sort_order": 1,
-    },
-    {
-        "code": "pro_monthly",
-        "name": "pro",
-        "display_name": "Pro",
-        "description": "Advanced quizzes, analytics, and full performance insights.",
-        "price_inr": 499,
-        "original_price_inr": 699,
-        "billing_period": "monthly",
-        "duration_days": 30,
-        "features": {"mock_tests": 25, "ai_queries_per_day": 120, "analytics": "advanced"},
-        "is_featured": True,
-        "badge_text": "Recommended",
-        "sort_order": 2,
-    },
-    {
-        "code": "elite_quarterly",
-        "name": "elite",
-        "display_name": "Elite (Quarterly)",
-        "description": "High-intensity preparation with premium planning and support.",
-        "price_inr": 1299,
-        "original_price_inr": 1799,
-        "billing_period": "quarterly",
-        "duration_days": 90,
-        "features": {"mock_tests": 100, "ai_queries_per_day": 500, "analytics": "premium"},
-        "is_featured": False,
-        "badge_text": "Best Value",
-        "sort_order": 3,
-    },
-]
-
-
-async def seed_subscription_plans(session):
-    print("\nSeeding subscription plans...")
-    added = 0
-    for plan in PLAN_DEFINITIONS:
-        existing = await session.execute(
-            select(SubscriptionPlan).where(SubscriptionPlan.code == plan["code"])
-        )
-        if existing.scalar_one_or_none():
-            print(f"  • Plan exists: {plan['display_name']}")
-            continue
-
-        session.add(SubscriptionPlan(**plan, is_active=True))
-        added += 1
-        print(f"  + Added plan: {plan['display_name']}")
-
-    await session.flush()
-    print(f"  ✅ Plans seeded: {added}")
 
 
 async def seed_for_user(session, user: User):
@@ -119,7 +52,7 @@ async def seed_for_user(session, user: User):
         )
         print("  + Notification settings created")
 
-    categories = ["study", "quiz", "subscription", "security"]
+    categories = ["study", "quiz", "account", "security"]
     for category in categories:
         pref = await session.execute(
             select(NotificationPreference).where(
@@ -136,7 +69,7 @@ async def seed_for_user(session, user: User):
                 category=category,
                 in_app=True,
                 push=True,
-                email=category in {"subscription", "security"},
+                email=category in {"account", "security"},
                 sms=False,
             )
         )
@@ -171,9 +104,9 @@ async def seed_for_user(session, user: User):
                 ),
                 UserNotification(
                     user_id=user.id,
-                    title="Security Tip",
+                    title="Account Safety Tip",
                     body="Review active sessions in Security Center regularly.",
-                    category="security",
+                    category="account",
                     priority="high",
                     is_read=True,
                     read_at=now - timedelta(hours=2),
@@ -242,8 +175,6 @@ async def seed_account_demo_data():
     await db_session.create_tables()
 
     async with db_session._async_session_factory() as session:
-        await seed_subscription_plans(session)
-
         users_result = await session.execute(select(User).order_by(User.id.asc()).limit(5))
         users = users_result.scalars().all()
 

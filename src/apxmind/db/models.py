@@ -118,12 +118,6 @@ class User(Base):
     data_export_requested_at = Column(DateTime, nullable=True)
     account_deletion_requested_at = Column(DateTime, nullable=True)
 
-    # Payment/Subscription columns (Phase 2)
-    subscription_status = Column(String(20), default="free")
-    subscription_expires_at = Column(DateTime, nullable=True)
-    lifetime_value_inr = Column(Integer, default=0)
-    referral_code = Column(String(20), unique=True, nullable=True)
-
     # Relationships — new tables
     subject_preferences = relationship(
         "UserSubjectPreference", back_populates="user", cascade="all, delete-orphan"
@@ -160,6 +154,18 @@ class User(Base):
     habit_signals = relationship(
         "HabitSignal", back_populates="user", cascade="all, delete-orphan"
     )
+    spaced_reviews = relationship(
+        "SpacedReview", back_populates="user", cascade="all, delete-orphan"
+    )
+    mistake_cards = relationship(
+        "MistakeCard", back_populates="user", cascade="all, delete-orphan"
+    )
+    planner_tasks = relationship(
+        "PlannerTask", back_populates="user", cascade="all, delete-orphan"
+    )
+    sync_journal_rows = relationship(
+        "SyncJournal", back_populates="user", cascade="all, delete-orphan"
+    )
 
     # Relationships — legacy tables
     progress = relationship("Progress", back_populates="user", cascade="all, delete-orphan")
@@ -175,15 +181,6 @@ class User(Base):
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
     security_events = relationship("SecurityEvent", back_populates="user", cascade="all, delete-orphan")
 
-    # Relationships — Payments (Phase 2)
-    subscriptions = relationship("UserSubscription", foreign_keys="UserSubscription.user_id", back_populates="user", cascade="all, delete-orphan")
-    payments = relationship("Payment", back_populates="user", cascade="all, delete-orphan")
-    invoices = relationship("Invoice", back_populates="user", cascade="all, delete-orphan")
-    promo_redemptions = relationship("PromoRedemption", back_populates="user", cascade="all, delete-orphan")
-    referrals_made = relationship("Referral", foreign_keys="Referral.referrer_id", back_populates="referrer")
-    referred_by = relationship("Referral", foreign_keys="Referral.referee_id", back_populates="referee")
-    wallet = relationship("UserWallet", back_populates="user", uselist=False, cascade="all, delete-orphan")
-
     # Relationships — Notifications (Phase 3)
     notifications = relationship("UserNotification", back_populates="user", cascade="all, delete-orphan")
     push_tokens = relationship("PushToken", back_populates="user", cascade="all, delete-orphan")
@@ -191,7 +188,7 @@ class User(Base):
     notification_settings = relationship("NotificationSetting", back_populates="user", uselist=False, cascade="all, delete-orphan")
     study_reminders = relationship("StudyReminder", back_populates="user", cascade="all, delete-orphan")
 
-    # Relationships — Admin (Phase 4)
+    # Relationships — Support and moderation (Phase 4)
     support_tickets = relationship("SupportTicket", back_populates="user", cascade="all, delete-orphan")
     content_reports = relationship("ContentReport", back_populates="reporter", cascade="all, delete-orphan")
     warnings = relationship("UserWarning", back_populates="user", cascade="all, delete-orphan")
@@ -738,6 +735,134 @@ class HabitSignal(Base):
     user = relationship("User", back_populates="habit_signals")
 
 
+class SpacedReview(Base):
+    """Offline-first spaced repetition queue item."""
+    __tablename__ = "spaced_reviews"
+    __table_args__ = (
+        UniqueConstraint("user_id", "source_type", "source_id", name="uq_spaced_review_source"),
+        Index("ix_spaced_reviews_user_due", "user_id", "due_at"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    topic = Column(String(160), nullable=False)
+    subject = Column(String(20), nullable=True)
+    source_type = Column(String(40), nullable=False)  # lesson_recall / mistake_card / flashcard
+    source_id = Column(String(80), nullable=False)
+    interval_step = Column(Integer, nullable=False, default=1)
+    due_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_reviewed_at = Column(DateTime, nullable=True)
+    last_result = Column(String(20), nullable=True)  # correct / partial / incorrect
+    ease_factor = Column(Numeric(4, 2), nullable=False, default=2.50)
+    streak = Column(Integer, nullable=False, default=0)
+    status = Column(String(20), nullable=False, default="active")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="spaced_reviews")
+
+
+class MistakeCard(Base):
+    """Structured error notebook row for repeated-mistake reduction."""
+    __tablename__ = "mistake_cards"
+    __table_args__ = (
+        Index("ix_mistake_cards_user_due", "user_id", "next_due_at"),
+        Index("ix_mistake_cards_user_subject_topic", "user_id", "subject", "topic"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    subject = Column(String(20), nullable=True)
+    topic = Column(String(160), nullable=True)
+    source_type = Column(String(40), nullable=True)  # quiz / recall / drill
+    source_id = Column(String(80), nullable=True)
+    error_reason_code = Column(String(40), nullable=False, default="other")
+    prompt_snapshot = Column(Text, nullable=False)
+    correct_explanation = Column(Text, nullable=True)
+    times_seen = Column(Integer, nullable=False, default=1)
+    times_repeated = Column(Integer, nullable=False, default=0)
+    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    next_due_at = Column(DateTime, nullable=True)
+    status = Column(String(20), nullable=False, default="active")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="mistake_cards")
+
+
+class PlannerTask(Base):
+    """Daily adaptive planner task with execution status."""
+    __tablename__ = "planner_tasks"
+    __table_args__ = (
+        Index("ix_planner_tasks_user_date", "user_id", "task_date"),
+        Index("ix_planner_tasks_user_status_date", "user_id", "status", "task_date"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    task_date = Column(Date, nullable=False)
+    task_type = Column(String(30), nullable=False)  # revision / new_learning / mini_set / stamina
+    subject = Column(String(20), nullable=True)
+    topic = Column(String(160), nullable=True)
+    recommended_minutes = Column(Integer, nullable=False, default=15)
+    priority_score = Column(Numeric(6, 3), nullable=False, default=0)
+    status = Column(String(20), nullable=False, default="pending")  # pending / completed / skipped
+    completed_at = Column(DateTime, nullable=True)
+    source_recommendation_id = Column(Integer, ForeignKey("learning_recommendations.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="planner_tasks")
+
+
+class ExamStaminaSession(Base):
+    """Timed stamina drill session with block plan and performance summary."""
+    __tablename__ = "exam_stamina_sessions"
+    __table_args__ = (
+        Index("ix_exam_stamina_sessions_user_started", "user_id", "started_at"),
+        Index("ix_exam_stamina_sessions_user_status", "user_id", "status"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    mode = Column(String(20), nullable=False, default="mixed")
+    subject = Column(String(20), nullable=True)
+    topic = Column(String(160), nullable=True)
+    planned_duration_minutes = Column(Integer, nullable=False, default=30)
+    planned_questions = Column(Integer, nullable=False, default=30)
+    block_count = Column(Integer, nullable=False, default=3)
+    block_plan = Column(JSON, nullable=True)
+    performance_summary = Column(JSON, nullable=True)
+    status = Column(String(20), nullable=False, default="active")  # active / completed / abandoned
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ended_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SyncJournal(Base):
+    """Reliable local-first sync journal mirror with idempotency tracking."""
+    __tablename__ = "sync_journal"
+    __table_args__ = (
+        Index("ix_sync_journal_user_status_created", "user_id", "status", "created_at"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    operation_type = Column(String(20), nullable=False)  # create / update / delete / event
+    entity_type = Column(String(40), nullable=False)
+    entity_id = Column(String(80), nullable=True)
+    payload = Column(JSON, nullable=True)
+    idempotency_key = Column(String(160), nullable=False, unique=True, index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    last_attempt_at = Column(DateTime, nullable=True)
+    synced_at = Column(DateTime, nullable=True)
+    status = Column(String(20), nullable=False, default="pending")  # pending / synced / failed
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="sync_journal_rows")
+
+
 # ============================================================================
 # LEGACY  (kept for backward compatibility with existing routes/code)
 # ============================================================================
@@ -963,268 +1088,6 @@ class SecurityEvent(Base):
     event_metadata = Column("metadata", JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     user = relationship("User", back_populates="security_events")
-
-
-# ============================================================================
-# PHASE 2: PAYMENTS & SUBSCRIPTIONS  (10 MODELS)
-# ============================================================================
-
-class SubscriptionPlan(Base):
-    __tablename__ = "subscription_plans"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    code = Column(String(50), unique=True, nullable=False, index=True)
-    name = Column(String(100), nullable=False)
-    display_name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
-    price_inr = Column(Integer, nullable=False)
-    price_usd = Column(Integer, nullable=True)
-    original_price_inr = Column(Integer, nullable=True)
-    billing_period = Column(String(20), nullable=False)
-    duration_days = Column(Integer, nullable=False)
-    features = Column(JSON, nullable=False, default=dict)
-    is_featured = Column(Boolean, default=False)
-    badge_text = Column(String(50), nullable=True)
-    sort_order = Column(Integer, default=0)
-    is_active = Column(Boolean, default=True)
-    available_from = Column(DateTime, nullable=True)
-    available_until = Column(DateTime, nullable=True)
-    target_segments = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    subscriptions = relationship("UserSubscription", back_populates="plan")
-
-
-class UserSubscription(Base):
-    __tablename__ = "user_subscriptions"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    plan_id = Column(String(36), ForeignKey("subscription_plans.id"), nullable=False, index=True)
-    status = Column(String(20), nullable=False, default="active")
-    started_at = Column(DateTime, nullable=False)
-    expires_at = Column(DateTime, nullable=False, index=True)
-    cancelled_at = Column(DateTime, nullable=True)
-    paused_at = Column(DateTime, nullable=True)
-    resumed_at = Column(DateTime, nullable=True)
-    cancel_reason = Column(String(100), nullable=True)
-    cancel_feedback = Column(Text, nullable=True)
-    auto_renew = Column(Boolean, default=True)
-    renewal_reminder_sent = Column(Boolean, default=False)
-    payment_method = Column(String(30), nullable=True)
-    razorpay_subscription_id = Column(String(100), nullable=True)
-    acquired_via = Column(String(50), nullable=True)
-    promo_code_used = Column(String(50), nullable=True)
-    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    user = relationship("User", foreign_keys=[user_id], back_populates="subscriptions")
-    plan = relationship("SubscriptionPlan", back_populates="subscriptions")
-    payments = relationship("Payment", back_populates="subscription")
-
-
-class Payment(Base):
-    __tablename__ = "payments"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    subscription_id = Column(String(36), ForeignKey("user_subscriptions.id"), nullable=True, index=True)
-    amount = Column(Integer, nullable=False)
-    currency = Column(String(3), nullable=False, default="INR")
-    tax_amount = Column(Integer, default=0)
-    discount_amount = Column(Integer, default=0)
-    final_amount = Column(Integer, nullable=False)
-    status = Column(String(20), nullable=False, index=True)
-    payment_method = Column(String(30), nullable=False)
-    payment_method_details = Column(JSON, nullable=True)
-    gateway = Column(String(30), nullable=False, default="razorpay")
-    gateway_order_id = Column(String(100), nullable=True, index=True)
-    gateway_payment_id = Column(String(100), nullable=True, index=True)
-    gateway_signature = Column(String(512), nullable=True)
-    gateway_response = Column(JSON, nullable=True)
-    failure_code = Column(String(50), nullable=True)
-    failure_reason = Column(Text, nullable=True)
-    retry_count = Column(Integer, default=0)
-    refund_amount = Column(Integer, nullable=True)
-    refund_reason = Column(Text, nullable=True)
-    refund_gateway_id = Column(String(100), nullable=True)
-    refunded_at = Column(DateTime, nullable=True)
-    ip_address = Column(String(45), nullable=True)
-    user_agent = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
-
-    user = relationship("User", back_populates="payments")
-    subscription = relationship("UserSubscription", back_populates="payments")
-    invoice = relationship("Invoice", back_populates="payment", uselist=False)
-    promo_redemptions = relationship("PromoRedemption", back_populates="payment")
-
-
-class Invoice(Base):
-    __tablename__ = "invoices"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    payment_id = Column(String(36), ForeignKey("payments.id"), nullable=True)
-    invoice_number = Column(String(50), unique=True, nullable=False, index=True)
-    fiscal_year = Column(String(10), nullable=False, index=True)
-    subtotal = Column(Integer, nullable=False)
-    discount_amount = Column(Integer, default=0)
-    taxable_amount = Column(Integer, nullable=False)
-    cgst_percent = Column(Numeric(5, 2), default=9)
-    cgst_amount = Column(Integer, default=0)
-    sgst_percent = Column(Numeric(5, 2), default=9)
-    sgst_amount = Column(Integer, default=0)
-    igst_percent = Column(Numeric(5, 2), nullable=True)
-    igst_amount = Column(Integer, default=0)
-    total_amount = Column(Integer, nullable=False)
-    billing_name = Column(String(100), nullable=False)
-    billing_email = Column(String(120), nullable=True)
-    billing_phone = Column(String(20), nullable=True)
-    billing_address_line1 = Column(String(255), nullable=True)
-    billing_address_line2 = Column(String(255), nullable=True)
-    billing_city = Column(String(100), nullable=True)
-    billing_state = Column(String(50), nullable=True)
-    billing_pincode = Column(String(10), nullable=True)
-    billing_country = Column(String(50), default="India")
-    billing_gst = Column(String(20), nullable=True)
-    seller_name = Column(String(100), default="ApxMind EdTech Pvt Ltd")
-    seller_gst = Column(String(20), nullable=True)
-    seller_pan = Column(String(20), nullable=True)
-    seller_address = Column(Text, nullable=True)
-    status = Column(String(20), default="draft")
-    invoice_date = Column(Date, nullable=False)
-    due_date = Column(Date, nullable=True)
-    paid_at = Column(DateTime, nullable=True)
-    pdf_generated = Column(Boolean, default=False)
-    pdf_url = Column(Text, nullable=True)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("User", back_populates="invoices")
-    payment = relationship("Payment", back_populates="invoice")
-
-
-class PromoCode(Base):
-    __tablename__ = "promo_codes"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    code = Column(String(50), unique=True, nullable=False, index=True)
-    name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
-    display_text = Column(String(100), nullable=True)
-    discount_type = Column(String(20), nullable=False)
-    discount_value = Column(Integer, nullable=False)
-    max_discount = Column(Integer, nullable=True)
-    min_purchase = Column(Integer, nullable=True)
-    applicable_plans = Column(JSON, nullable=True)
-    applicable_users = Column(JSON, nullable=True)
-    first_purchase_only = Column(Boolean, default=False)
-    max_total_uses = Column(Integer, nullable=True)
-    max_uses_per_user = Column(Integer, default=1)
-    current_uses = Column(Integer, default=0)
-    valid_from = Column(DateTime, nullable=True)
-    valid_until = Column(DateTime, nullable=True)
-    is_active = Column(Boolean, default=True)
-    campaign_name = Column(String(100), nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    redemptions = relationship("PromoRedemption", back_populates="promo")
-
-
-class PromoRedemption(Base):
-    __tablename__ = "promo_redemptions"
-    __table_args__ = (
-        UniqueConstraint("promo_id", "user_id", "payment_id", name="uq_promo_user_payment"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    promo_id = Column(Integer, ForeignKey("promo_codes.id"), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    payment_id = Column(String(36), ForeignKey("payments.id"), nullable=True)
-    original_amount = Column(Integer, nullable=False)
-    discount_applied = Column(Integer, nullable=False)
-    final_amount = Column(Integer, nullable=False)
-    redeemed_at = Column(DateTime, default=datetime.utcnow)
-
-    promo = relationship("PromoCode", back_populates="redemptions")
-    user = relationship("User", back_populates="promo_redemptions")
-    payment = relationship("Payment", back_populates="promo_redemptions")
-
-
-class Referral(Base):
-    __tablename__ = "referrals"
-    __table_args__ = (
-        UniqueConstraint("referrer_id", "referee_id", name="uq_referrer_referee"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    referee_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    status = Column(String(20), default="pending")
-    qualified_at = Column(DateTime, nullable=True)
-    qualifying_payment_id = Column(String(36), ForeignKey("payments.id"), nullable=True)
-    referrer_reward_type = Column(String(20), nullable=True)
-    referrer_reward_value = Column(Integer, nullable=True)
-    referrer_reward_applied = Column(Boolean, default=False)
-    referrer_rewarded_at = Column(DateTime, nullable=True)
-    referee_reward_type = Column(String(20), nullable=True)
-    referee_reward_value = Column(Integer, nullable=True)
-    referee_reward_applied = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    referrer = relationship("User", foreign_keys=[referrer_id], back_populates="referrals_made")
-    referee = relationship("User", foreign_keys=[referee_id], back_populates="referred_by")
-
-
-class UserWallet(Base):
-    __tablename__ = "user_wallet"
-
-    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
-    balance = Column(Integer, nullable=False, default=0)
-    lifetime_earned = Column(Integer, default=0)
-    lifetime_spent = Column(Integer, default=0)
-    last_transaction_at = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    user = relationship("User", back_populates="wallet")
-    transactions = relationship("WalletTransaction", back_populates="wallet", cascade="all, delete-orphan")
-
-
-class WalletTransaction(Base):
-    __tablename__ = "wallet_transactions"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("user_wallet.user_id"), nullable=False, index=True)
-    transaction_type = Column(String(30), nullable=False)
-    amount = Column(Integer, nullable=False)
-    balance_after = Column(Integer, nullable=False)
-    description = Column(Text, nullable=False)
-    reference_type = Column(String(30), nullable=True)
-    reference_id = Column(String(64), nullable=True)
-    expires_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    wallet = relationship("UserWallet", back_populates="transactions")
-
-
-class PaymentRetryQueue(Base):
-    __tablename__ = "payment_retry_queue"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    subscription_id = Column(String(36), ForeignKey("user_subscriptions.id"), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    retry_count = Column(Integer, default=0)
-    max_retries = Column(Integer, default=3)
-    last_attempt_at = Column(DateTime, nullable=True)
-    next_attempt_at = Column(DateTime, nullable=False, index=True)
-    last_failure_reason = Column(Text, nullable=True)
-    status = Column(String(20), default="pending", index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # ============================================================================
@@ -1462,90 +1325,8 @@ class StudyReminder(Base):
 
 
 # ============================================================================
-# PHASE 4: ADMIN & MODERATION  (15 MODELS)
+# PHASE 4: SUPPORT, MODERATION, OPS  (student-facing + internal tracking)
 # ============================================================================
-
-class AdminRole(Base):
-    __tablename__ = "admin_roles"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(50), unique=True, nullable=False)
-    display_name = Column(String(100), nullable=False)
-    permissions = Column(JSON, nullable=False, default=dict)
-    description = Column(Text, nullable=True)
-    is_system = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    admins = relationship("AdminUser", back_populates="role")
-
-
-class AdminUser(Base):
-    __tablename__ = "admin_users"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(120), unique=True, nullable=False, index=True)
-    password_hash = Column(String(256), nullable=False)
-    name = Column(String(100), nullable=False)
-    avatar_url = Column(Text, nullable=True)
-    phone = Column(String(20), nullable=True)
-    role_id = Column(Integer, ForeignKey("admin_roles.id"), nullable=False, index=True)
-    two_factor_enabled = Column(Boolean, default=False)
-    two_factor_secret = Column(String(128), nullable=True)
-    last_login_at = Column(DateTime, nullable=True)
-    last_login_ip = Column(String(45), nullable=True)
-    failed_login_attempts = Column(Integer, default=0)
-    account_locked_until = Column(DateTime, nullable=True)
-    is_active = Column(Boolean, default=True)
-    deactivated_at = Column(DateTime, nullable=True)
-    deactivated_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
-    deactivation_reason = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    created_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    role = relationship("AdminRole", back_populates="admins")
-    sessions = relationship("AdminSession", back_populates="admin", cascade="all, delete-orphan")
-    actions = relationship("AdminAction", back_populates="admin", cascade="all, delete-orphan")
-
-
-class AdminSession(Base):
-    __tablename__ = "admin_sessions"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    admin_id = Column(Integer, ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False, index=True)
-    token_hash = Column(String(256), nullable=False, index=True)
-    ip_address = Column(String(45), nullable=True)
-    user_agent = Column(Text, nullable=True)
-    expires_at = Column(DateTime, nullable=False)
-    is_revoked = Column(Boolean, default=False)
-    revoked_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    last_activity = Column(DateTime, default=datetime.utcnow)
-
-    admin = relationship("AdminUser", back_populates="sessions")
-
-
-class AdminAction(Base):
-    __tablename__ = "admin_actions"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    admin_id = Column(Integer, ForeignKey("admin_users.id"), nullable=False, index=True)
-    action = Column(String(100), nullable=False, index=True)
-    action_category = Column(String(50), nullable=False, index=True)
-    target_type = Column(String(30), nullable=True)
-    target_id = Column(String(64), nullable=True)
-    target_name = Column(String(255), nullable=True)
-    old_value = Column(JSON, nullable=True)
-    new_value = Column(JSON, nullable=True)
-    change_summary = Column(Text, nullable=True)
-    reason = Column(Text, nullable=True)
-    ip_address = Column(String(45), nullable=True)
-    user_agent = Column(Text, nullable=True)
-    status = Column(String(20), default="success")
-    error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    admin = relationship("AdminUser", back_populates="actions")
 
 
 class SupportTicket(Base):
@@ -1563,9 +1344,9 @@ class SupportTicket(Base):
     subcategory = Column(String(50), nullable=True)
     priority = Column(String(20), default="normal")
     status = Column(String(20), default="open", index=True)
-    assigned_to = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    assigned_to = Column(Integer, nullable=True)
     assigned_at = Column(DateTime, nullable=True)
-    escalated_to = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    escalated_to = Column(Integer, nullable=True)
     escalated_at = Column(DateTime, nullable=True)
     first_response_at = Column(DateTime, nullable=True)
     first_response_sla_met = Column(Boolean, nullable=True)
@@ -1574,7 +1355,7 @@ class SupportTicket(Base):
     resolution_summary = Column(Text, nullable=True)
     resolution_type = Column(String(30), nullable=True)
     resolved_at = Column(DateTime, nullable=True)
-    resolved_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    resolved_by = Column(Integer, nullable=True)
     satisfaction_rating = Column(Integer, nullable=True)
     satisfaction_comment = Column(Text, nullable=True)
     source = Column(String(30), default="app")
@@ -1618,7 +1399,7 @@ class CannedResponse(Base):
     category = Column(String(50), nullable=True)
     tags = Column(JSON, nullable=True)
     usage_count = Column(Integer, default=0)
-    created_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    created_by = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -1634,7 +1415,7 @@ class ContentReport(Base):
     reason = Column(String(50), nullable=False)
     description = Column(Text, nullable=True)
     status = Column(String(20), default="pending", index=True)
-    reviewed_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    reviewed_by = Column(Integer, nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     review_notes = Column(Text, nullable=True)
     action_taken = Column(String(50), nullable=True)
@@ -1655,7 +1436,7 @@ class UserWarning(Base):
     related_content_type = Column(String(30), nullable=True)
     related_content_id = Column(String(64), nullable=True)
     report_id = Column(Integer, ForeignKey("content_reports.id"), nullable=True)
-    issued_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    issued_by = Column(Integer, nullable=True)
     acknowledged_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -1675,15 +1456,15 @@ class UserBan(Base):
     ends_at = Column(DateTime, nullable=True)
     warning_count_at_ban = Column(Integer, nullable=True)
     report_id = Column(Integer, ForeignKey("content_reports.id"), nullable=True)
-    issued_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    issued_by = Column(Integer, nullable=True)
     appeal_text = Column(Text, nullable=True)
     appeal_status = Column(String(20), nullable=True)
-    appeal_reviewed_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    appeal_reviewed_by = Column(Integer, nullable=True)
     appeal_reviewed_at = Column(DateTime, nullable=True)
     appeal_notes = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, index=True)
     lifted_at = Column(DateTime, nullable=True)
-    lifted_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    lifted_by = Column(Integer, nullable=True)
     lift_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -1709,7 +1490,7 @@ class FeatureFlag(Base):
     variants = Column(JSON, nullable=True)
     owner = Column(String(100), nullable=True)
     jira_ticket = Column(String(50), nullable=True)
-    updated_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    updated_by = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1724,7 +1505,7 @@ class FeatureFlagOverride(Base):
     is_enabled = Column(Boolean, nullable=False)
     variant = Column(String(50), nullable=True)
     reason = Column(Text, nullable=True)
-    set_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    set_by = Column(Integer, nullable=True)
     expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -1741,7 +1522,7 @@ class SystemSetting(Base):
     description = Column(Text, nullable=True)
     category = Column(String(50), nullable=False)
     is_sensitive = Column(Boolean, default=False)
-    updated_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    updated_by = Column(Integer, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -1764,7 +1545,7 @@ class Announcement(Base):
     is_dismissible = Column(Boolean, default=True)
     view_count = Column(Integer, default=0)
     dismiss_count = Column(Integer, default=0)
-    created_by = Column(Integer, ForeignKey("admin_users.id"), nullable=True)
+    created_by = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     dismissals = relationship("AnnouncementDismissal", back_populates="announcement", cascade="all, delete-orphan")

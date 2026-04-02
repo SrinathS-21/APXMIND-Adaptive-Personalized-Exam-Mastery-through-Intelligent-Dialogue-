@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Input, Spinner } from '@heroui/react';
-import { User, Lock, Plus, ChevronDown } from 'lucide-react';
+import { Button, Input, Select, SelectItem, Spinner } from '@heroui/react';
+import { User, Lock, Plus } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../hooks/useTheme';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { normalizeApiUserProfile, useProfileStore } from '../store/profileStore';
 import apiClient from '../lib/api';
@@ -57,7 +57,7 @@ export function WelcomeScreen() {
       if (res.data.success && res.data.token) {
         localStorage.setItem('APXMIND_token', res.data.token);
         setProfile(normalizeApiUserProfile(res.data.user));
-        navigate('/dashboard');
+        navigate('/home');
       }
     } catch (err: unknown) {
       console.error(err);
@@ -125,24 +125,32 @@ export function WelcomeScreen() {
           ) : (
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-[11px] text-text-muted">Profile</label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-content3 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <ChevronDown className="w-4 h-4 text-content3 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <select
-                    value={selectedUserId}
-                    onChange={(e) => {
-                      setSelectedUserId(e.target.value);
-                      setError('');
-                    }}
-                    className="w-full appearance-none bg-bg-3 border border-border-default rounded-[var(--r-md)] pl-9 pr-10 py-2.5 text-[13px] text-text-primary outline-none transition-colors focus:border-accent"
-                  >
-                    <option value="" disabled>Select profile</option>
-                    {users.map((user) => (
-                      <option key={user.id} value={String(user.id)}>{user.name}</option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Profile"
+                  placeholder="Select profile"
+                  selectedKeys={selectedUserId ? new Set([selectedUserId]) : new Set()}
+                  onSelectionChange={(keys) => {
+                    const next = String(Array.from(keys)[0] ?? '');
+                    setSelectedUserId(next);
+                    setError('');
+                  }}
+                  variant="bordered"
+                  size="md"
+                  startContent={<User className="w-4 h-4 text-text-muted" />}
+                  classNames={{
+                    trigger: 'bg-bg-3 border-border-default hover:border-accent rounded-[var(--r-md)] min-h-11 px-3',
+                    label: 'text-[11px] text-text-muted mb-[5px]',
+                    value: 'text-[13px] text-text-primary',
+                    popoverContent: 'bg-bg-2 border border-border-default shadow-[0_10px_30px_rgba(92,60,35,0.14)]',
+                    listbox: 'p-1',
+                  }}
+                >
+                  {users.map((user) => (
+                    <SelectItem key={String(user.id)} textValue={user.name} className="text-text-primary data-[hover=true]:bg-bg-3 data-[selected=true]:bg-accent-soft">
+                      {user.name}
+                    </SelectItem>
+                  ))}
+                </Select>
               </div>
 
               <Input
@@ -156,7 +164,7 @@ export function WelcomeScreen() {
                 errorMessage={error}
                 autoFocus
                 classNames={{
-                  inputWrapper: 'bg-bg-3 border-border-default rounded-[var(--r-md)]',
+                  inputWrapper: 'bg-bg-3 border-border-default rounded-(--r-md)',
                   label: 'text-[11px] text-text-muted',
                   input: 'text-[13px] text-text-primary placeholder:text-text-faint',
                 }}
@@ -169,7 +177,7 @@ export function WelcomeScreen() {
                 isLoading={loggingIn}
                 isDisabled={!selectedUserId || !password}
               >
-                Continue to Dashboard
+                Continue to Home
               </Button>
 
               <div className="relative flex items-center py-1">

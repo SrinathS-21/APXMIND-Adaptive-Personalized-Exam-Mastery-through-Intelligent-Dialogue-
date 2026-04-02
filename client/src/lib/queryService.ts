@@ -1,13 +1,13 @@
 // Query API Service
 // Handles intelligent query processing with LangGraph routing
 
-import apiClient, { API_ENDPOINTS } from './api';
+import apiClient, { API_ENDPOINTS, getApiErrorMessage } from './api';
 
 export interface QueryRequest {
   query: string;
   subject?: string;
   user_id?: number;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
 }
 
 export interface QueryResponse {
@@ -51,12 +51,12 @@ export const processQuery = async (
     );
 
     return response.data;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to process query:', error);
     return {
       success: false,
       answer: 'Failed to process your question. Please try again.',
-      error: error.response?.data?.error || 'Query processing failed',
+      error: getApiErrorMessage(error, 'Query processing failed'),
     };
   }
 };

@@ -30,6 +30,105 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _normalize_answer(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def _choice_letter(value: str) -> str | None:
+    token = (value or "").strip().upper()
+    if len(token) == 1 and token in {"A", "B", "C", "D"}:
+        return token
+    return None
+
+
+def _resolve_correct_answer_text(correct_answer: str | None, options: list[str] | None) -> str:
+    if not correct_answer:
+        return ""
+    letter = _choice_letter(correct_answer)
+    if letter and options:
+        idx = ord(letter) - ord("A")
+        if 0 <= idx < len(options):
+            return options[idx]
+    return correct_answer
+
+
+def _build_fallback_explanation(
+    *,
+    question_text: str | None,
+    is_correct: bool,
+    user_answer: str,
+    correct_answer_text: str,
+) -> str:
+    if is_correct:
+        if correct_answer_text:
+            return (
+                f"Correct. The right answer is {correct_answer_text}. "
+                "This option best matches the concept tested in the question."
+            )
+        return "Correct. Your selected option matches the expected answer for this question."
+
+    if correct_answer_text:
+        if user_answer:
+            return (
+                f"Incorrect. You selected {user_answer}, but the correct answer is "
+                f"{correct_answer_text}. Review the core concept and keyword clues in the question."
+            )
+        return (
+            f"Incorrect. The correct answer is {correct_answer_text}. "
+            "Review the core concept and keyword clues in the question."
+        )
+
+    if question_text:
+        return "Incorrect. Re-read the question stem and compare each option against the main concept being tested."
+    return "Incorrect. Re-check the concept and compare all options carefully."
+
+
+def _evaluate_answer(user_answer: str, correct_answer: str | None, options: list[str] | None) -> bool:
+    if not correct_answer:
+        return False
+
+    user_norm = _normalize_answer(user_answer)
+    correct_norm = _normalize_answer(correct_answer)
+
+    # Direct text match path.
+    if user_norm == correct_norm:
+        return True
+
+    user_letter = _choice_letter(user_answer)
+    correct_letter = _choice_letter(correct_answer)
+
+    # Letter-vs-letter path.
+    if user_letter and correct_letter and user_letter == correct_letter:
+        return True
+
+    if not options:
+        return False
+
+    # Convert user text to option letter when possible.
+    user_from_option_letter = None
+    for idx, option in enumerate(options):
+        if _normalize_answer(option) == user_norm:
+            user_from_option_letter = chr(ord("A") + idx)
+            break
+
+    # Convert correct text to option letter when possible.
+    correct_from_option_letter = None
+    if not correct_letter:
+        for idx, option in enumerate(options):
+            if _normalize_answer(option) == correct_norm:
+                correct_from_option_letter = chr(ord("A") + idx)
+                break
+
+    effective_user_letter = user_letter or user_from_option_letter
+    effective_correct_letter = correct_letter or correct_from_option_letter
+    if effective_user_letter and effective_correct_letter:
+        return effective_user_letter == effective_correct_letter
+
+    # Fallback text match against resolved correct option text.
+    resolved_correct_text = _resolve_correct_answer_text(correct_answer, options)
+    return bool(resolved_correct_text) and user_norm == _normalize_answer(resolved_correct_text)
+
+
 @router.post(
     "/generate-quiz",
     response_model=QuizResponse,
@@ -91,11 +190,16 @@ async def generate_quiz(request: QuizRequest):
 async def submit_answer(request: AnswerSubmitRequest):
     """Evaluate a user's answer to a quiz question."""
     try:
-        is_correct = (
-            request.user_answer.strip().upper() == request.correct_answer.strip().upper()
-            if request.correct_answer
-            else False
+        is_correct = _evaluate_answer(
+            user_answer=request.user_answer,
+            correct_answer=request.correct_answer,
+            options=request.options,
         )
+
+        resolved_correct_answer = _resolve_correct_answer_text(
+            correct_answer=request.correct_answer,
+            options=request.options,
+        ) or (request.correct_answer or "")
 
         explanation = ""
         if request.question_text:
@@ -111,17 +215,24 @@ async def submit_answer(request: AnswerSubmitRequest):
                 chain = prompt | llm | StrOutputParser()
                 explanation = chain.invoke({
                     "question": request.question_text,
-                    "answer": request.correct_answer or request.user_answer,
+                    "answer": resolved_correct_answer or request.user_answer,
                 })
             except Exception as e:
                 logger.warning(f"Explanation generation failed: {e}")
-                explanation = "Explanation not available."
+
+        if not explanation or not explanation.strip() or explanation.strip().lower() == "explanation not available.":
+            explanation = _build_fallback_explanation(
+                question_text=request.question_text,
+                is_correct=is_correct,
+                user_answer=request.user_answer,
+                correct_answer_text=resolved_correct_answer,
+            )
 
         return AnswerSubmitResponse(
             success=True,
             evaluation=AnswerEvaluation(
                 correct=is_correct,
-                correct_answer=request.correct_answer or "",
+                correct_answer=resolved_correct_answer,
                 explanation=explanation,
             ),
         )

@@ -11,18 +11,18 @@
 
 CREATE TABLE IF NOT EXISTS subscription_plans (
     id VARCHAR(36) PRIMARY KEY,
-    code VARCHAR(50) UNIQUE NOT NULL,      -- 'free', 'basic_monthly', 'pro_yearly'
+    code VARCHAR(50) UNIQUE NOT NULL,      -- 'free', 'plus_monthly', 'pro_monthly', 'pro_annual', 'pro_exam_cycle'
     name VARCHAR(100) NOT NULL,            -- Internal name
     display_name VARCHAR(100) NOT NULL,    -- "Pro Plan"
     description TEXT,
 
--- Pricing (store in paise for INR precision)
-price_inr INTEGER NOT NULL, -- Price in paise (99900 = ₹999)
-price_usd INTEGER, -- Price in cents (optional for international)
+-- Pricing (store in INR rupees as integer values)
+price_inr INTEGER NOT NULL, -- Price in INR (example: 999 = ₹999)
+price_usd INTEGER, -- Price in USD dollars (optional for international)
 original_price_inr INTEGER, -- For showing "was ₹X" strikethrough
 
 -- Duration
-billing_period VARCHAR(20) NOT NULL, -- 'monthly', 'quarterly', 'yearly', 'lifetime'
+billing_period VARCHAR(20) NOT NULL, -- 'monthly', 'yearly', 'lifetime', 'exam_cycle'
 duration_days INTEGER NOT NULL, -- 30, 90, 365, 36500
 
 -- Features
@@ -47,6 +47,7 @@ badge_text VARCHAR(50), -- "Best Value", "Most Popular"
 sort_order INTEGER DEFAULT 0,
 
 -- Availability
+
 is_active BOOLEAN DEFAULT TRUE,
     available_from DATETIME,
     available_until DATETIME,
@@ -92,6 +93,7 @@ payment_method VARCHAR(30), -- 'razorpay', 'upi', 'card', 'netbanking'
 razorpay_subscription_id VARCHAR(100), -- If using Razorpay subscriptions
 
 -- Source tracking
+
 acquired_via VARCHAR(50),              -- 'organic', 'promo_code', 'referral', 'trial_conversion'
     promo_code_used VARCHAR(50),
     referrer_id INTEGER REFERENCES users(id),
@@ -117,7 +119,7 @@ CREATE TABLE IF NOT EXISTS payments (
     subscription_id VARCHAR(36) REFERENCES user_subscriptions(id),
 
 -- Amount
-amount INTEGER NOT NULL, -- In smallest unit (paise for INR)
+amount INTEGER NOT NULL, -- In INR rupees
 currency VARCHAR(3) NOT NULL DEFAULT 'INR',
 tax_amount INTEGER DEFAULT 0, -- GST
 discount_amount INTEGER DEFAULT 0, -- Promo discount
@@ -180,7 +182,7 @@ invoice_number VARCHAR(50) UNIQUE NOT NULL,
 fiscal_year VARCHAR(10) NOT NULL, -- '2025-26'
 
 -- Amounts
-subtotal INTEGER NOT NULL, -- In paise
+subtotal INTEGER NOT NULL, -- In INR rupees
 discount_amount INTEGER DEFAULT 0,
 taxable_amount INTEGER NOT NULL,
 cgst_percent NUMERIC(5, 2) DEFAULT 9, -- 9% CGST
@@ -243,9 +245,9 @@ display_text VARCHAR(100), -- "Get 50% off!"
 
 -- Discount
 discount_type VARCHAR(20) NOT NULL, -- 'percentage', 'fixed'
-discount_value INTEGER NOT NULL, -- 50 (percent) or 50000 (paise)
-max_discount INTEGER, -- Max discount in paise (for percentage)
-min_purchase INTEGER, -- Minimum order amount in paise
+discount_value INTEGER NOT NULL, -- 50 (percent) or 500 (INR)
+max_discount INTEGER, -- Max discount in INR (for percentage)
+min_purchase INTEGER, -- Minimum order amount in INR
 
 -- Applicability
 applicable_plans JSON, -- NULL = all plans, or ["plan_id_1", "plan_id_2"]
@@ -287,7 +289,7 @@ CREATE TABLE IF NOT EXISTS promo_redemptions (
     user_id INTEGER NOT NULL REFERENCES users (id),
     payment_id VARCHAR(36) REFERENCES payments (id),
     original_amount INTEGER NOT NULL, -- Amount before discount
-    discount_applied INTEGER NOT NULL, -- Discount given in paise
+    discount_applied INTEGER NOT NULL, -- Discount given in INR
     final_amount INTEGER NOT NULL, -- Amount after discount
     redeemed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (promo_id, user_id, payment_id)
@@ -315,8 +317,9 @@ qualified_at DATETIME,
 qualifying_payment_id VARCHAR(36) REFERENCES payments (id),
 
 -- Rewards
+
 referrer_reward_type VARCHAR(20),      -- 'discount', 'credits', 'extension'
-    referrer_reward_value INTEGER,         -- Paise or days
+    referrer_reward_value INTEGER,         -- INR or days
     referrer_reward_applied BOOLEAN DEFAULT FALSE,
     referrer_rewarded_at DATETIME,
 
@@ -340,7 +343,7 @@ CREATE INDEX IF NOT EXISTS idx_referral_referee ON referrals (referee_id);
 
 CREATE TABLE IF NOT EXISTS user_wallet (
     user_id INTEGER PRIMARY KEY REFERENCES users (id),
-    balance INTEGER NOT NULL DEFAULT 0, -- In paise
+    balance INTEGER NOT NULL DEFAULT 0, -- In INR
     lifetime_earned INTEGER DEFAULT 0,
     lifetime_spent INTEGER DEFAULT 0,
     last_transaction_at DATETIME,
@@ -376,7 +379,7 @@ ALTER TABLE users ADD COLUMN lifetime_value_inr INTEGER DEFAULT 0;
 
 ALTER TABLE users ADD COLUMN referral_code VARCHAR(20);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users (referral_code);
 
 -- Generate unique referral codes for existing users
 -- (Run this as a migration script in Python)
@@ -405,8 +408,8 @@ CREATE INDEX IF NOT EXISTS idx_retry_pending ON payment_retry_queue (status, nex
 -- SEED DATA: Default Subscription Plans
 -- ============================================================================
 
-INSERT OR IGNORE INTO
-    subscription_plans (
+INSERT
+    OR IGNORE INTO subscription_plans (
         id,
         code,
         name,
@@ -425,80 +428,80 @@ INSERT OR IGNORE INTO
 VALUES (
         'plan_free',
         'free',
-        'Free Plan',
+        'free',
         'Free',
-        'Basic access to get started',
+        'Core NCERT learning with daily limits for AI and tests.',
         0,
         0,
         'lifetime',
         36500,
-        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": 10, "mock_tests": false, "study_groups": false, "offline_access": false, "ad_free": false}',
+        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": 15, "mock_tests_per_month": 2, "analytics": "basic", "doubt_tools": "limited", "scholarship_eligible": true}',
         FALSE,
-        NULL,
+        'Always Free',
         0,
         TRUE
     ),
     (
-        'plan_basic_monthly',
-        'basic_monthly',
-        'Basic Monthly',
-        'Basic',
-        'Essential features for serious preparation',
-        29900,
-        49900,
+        'plan_plus_monthly',
+        'plus_monthly',
+        'plus',
+        'Plus Monthly',
+        'Affordable monthly upgrade with stronger limits and analytics',
+        199,
+        299,
         'monthly',
         30,
-        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": 50, "mock_tests": true, "mock_tests_per_month": 5, "study_groups": false, "offline_access": false, "ad_free": true}',
-        FALSE,
-        NULL,
+        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": 80, "mock_tests_per_month": 12, "analytics": "advanced", "doubt_tools": "priority", "scholarship_eligible": true, "sponsored_seats_available": true}',
+        TRUE,
+        'Most Affordable',
         1,
         TRUE
     ),
     (
         'plan_pro_monthly',
         'pro_monthly',
+        'pro',
         'Pro Monthly',
-        'Pro',
-        'Full access for comprehensive preparation',
-        49900,
-        79900,
+        'High-intensity preparation with premium planning and support',
+        499,
+        699,
         'monthly',
         30,
-        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": 200, "mock_tests": true, "mock_tests_per_month": 20, "study_groups": true, "offline_access": true, "ad_free": true, "personalized_schedule": true}',
+        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": -1, "mock_tests_per_month": 30, "analytics": "premium", "doubt_tools": "priority", "priority_support": true, "scholarship_eligible": true}',
         TRUE,
-        'Most Popular',
+        'Recommended',
         2,
         TRUE
     ),
     (
-        'plan_pro_yearly',
-        'pro_yearly',
-        'Pro Yearly',
+        'plan_pro_annual',
+        'pro_annual',
+        'pro',
         'Pro Annual',
-        'Best value - full access for a year',
-        399900,
-        599900,
+        'Best value for year-long prep with visible monthly savings',
+        1299,
+        1799,
         'yearly',
         365,
-        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": -1, "mock_tests": true, "mock_tests_per_month": -1, "study_groups": true, "offline_access": true, "ad_free": true, "personalized_schedule": true, "priority_support": true}',
+        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": -1, "mock_tests_per_month": -1, "analytics": "premium", "doubt_tools": "priority", "priority_support": true, "exam_readiness_reports": true, "scholarship_eligible": true, "sponsored_seats_available": true}',
         TRUE,
         'Best Value',
         3,
         TRUE
     ),
     (
-        'plan_neet_2026',
-        'neet_2026',
-        'NEET 2026 Bundle',
-        'NEET 2026',
-        'Complete package until NEET 2026 exam',
-        699900,
-        999900,
-        'custom',
+        'plan_pro_exam_cycle',
+        'pro_exam_cycle',
+        'pro',
+        'Pro Exam Cycle',
+        'Exam-season bundle aligned with NEET timeline and revision cycles',
+        1799,
+        2499,
+        'exam_cycle',
         400,
-        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": -1, "mock_tests": true, "mock_tests_per_month": -1, "study_groups": true, "offline_access": true, "ad_free": true, "personalized_schedule": true, "priority_support": true, "doubt_sessions": 12, "counseling_sessions": 4}',
+        '{"subjects": ["biology", "chemistry", "physics"], "max_daily_queries": -1, "mock_tests_per_month": -1, "analytics": "premium", "doubt_tools": "priority", "priority_support": true, "exam_season_intensive": true, "scholarship_eligible": true, "sponsored_seats_available": true}',
         FALSE,
-        'Limited Offer',
+        'Exam Ready',
         4,
         TRUE
     );

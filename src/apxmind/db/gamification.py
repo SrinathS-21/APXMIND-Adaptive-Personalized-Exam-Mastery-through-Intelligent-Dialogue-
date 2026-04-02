@@ -92,7 +92,7 @@ async def award_xp(
     Updates daily_progress and user_gamification_snapshot.
     Returns the XP actually awarded.
     """
-    if xp <= 0:
+    if xp <= 0 and event_type != "quiz_completed":
         return 0
 
     today = date.today()

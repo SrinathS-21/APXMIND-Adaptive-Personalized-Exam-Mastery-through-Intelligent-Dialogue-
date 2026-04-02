@@ -6,11 +6,121 @@ Simplified agent functions that work with Flask without Streamlit dependencies.
 """
 
 import logging
+import re
 from typing import Dict, Any, Optional
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 logger = logging.getLogger(__name__)
+
+
+def _first_sentences(text: str, max_sentences: int = 2) -> str:
+    """Return up to max_sentences from text."""
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+    if not sentences:
+        return text.strip()
+    return " ".join(sentences[:max_sentences]).strip()
+
+
+def _looks_already_structured(answer: str) -> bool:
+    has_headings = bool(re.search(r"^\s{0,3}#{1,6}\s+", answer, flags=re.MULTILINE))
+    labels = ["concept", "explanation", "example", "exam tip", "quick recap"]
+    found = sum(1 for label in labels if label in answer.lower())
+    return has_headings or found >= 2
+
+
+def _is_system_or_error_answer(answer: str) -> bool:
+    lower = answer.lower()
+    markers = [
+        "unable to process",
+        "encountered an error",
+        "please try again",
+        "backend is currently unavailable",
+        "could not reach the live ai model",
+        "i can still help, but the ai model backend is currently unavailable",
+    ]
+    return any(marker in lower for marker in markers)
+
+
+def _default_exam_tip(subject: str) -> str:
+    tips = {
+        "biology": "Focus on NCERT wording and classification terms. In NEET, options often differ by one key biological term.",
+        "chemistry": "Write the core equation or trend first, then eliminate options that violate units, periodic trends, or reaction conditions.",
+        "physics": "Start from the governing formula, check units at each step, and estimate the expected magnitude before finalizing the answer.",
+    }
+    return tips.get(
+        (subject or "").lower(),
+        "Underline the core concept in the question, then eliminate options that directly contradict the governing rule.",
+    )
+
+
+def _format_for_chat_display(answer: str, query: str, subject: str) -> str:
+    """Normalize model output into stable markdown sections for chat UI."""
+    text = (answer or "").replace("\r\n", "\n").strip()
+    if not text or _is_system_or_error_answer(text) or _looks_already_structured(text):
+        return text
+
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", text) if p.strip()]
+    if not paragraphs:
+        return text
+
+    example_text = ""
+    exam_tip_text = ""
+    explanation_parts = []
+
+    example_re = re.compile(
+        r"^\s*(example|for example|for instance|consider|suppose|let's say)\s*[:\-]?\s*",
+        re.IGNORECASE,
+    )
+    exam_tip_re = re.compile(
+        r"^\s*(exam tip|neet tip|quick tip|remember|pitfall|mnemonic)\s*[:\-]?\s*",
+        re.IGNORECASE,
+    )
+
+    for paragraph in paragraphs:
+        if not exam_tip_text and exam_tip_re.search(paragraph):
+            exam_tip_text = re.sub(
+                r"^\s*(exam tip|neet tip|quick tip|remember|pitfall|mnemonic)\s*[:\-]?\s*",
+                "",
+                paragraph,
+                flags=re.IGNORECASE,
+            ).strip()
+            continue
+
+        if not example_text and example_re.search(paragraph):
+            example_text = re.sub(
+                r"^\s*(example|for example|for instance|consider|suppose|let's say)\s*[:\-]?\s*",
+                "",
+                paragraph,
+                flags=re.IGNORECASE,
+            ).strip()
+            continue
+
+        explanation_parts.append(paragraph)
+
+    main_text = explanation_parts[0] if explanation_parts else paragraphs[0]
+    concept_text = _first_sentences(main_text, max_sentences=2)
+
+    if not explanation_parts:
+        explanation_text = main_text
+    else:
+        explanation_text = "\n\n".join(explanation_parts)
+
+    if not example_text:
+        example_text = (
+            f"Apply the same idea to this query: \"{query}\". "
+            "Identify the governing concept first, then solve step by step."
+        )
+
+    if not exam_tip_text:
+        exam_tip_text = _default_exam_tip(subject)
+
+    return "\n\n".join([
+        f"### Concept\n{concept_text}",
+        f"### Explanation\n{explanation_text}",
+        f"### Example\n{example_text}",
+        f"### Exam Tip\n{exam_tip_text}",
+    ]).strip()
 
 
 def classify_intent(query: str, subject: Optional[str] = None) -> Dict[str, Any]:
@@ -111,6 +221,35 @@ Examples:
         return 'biology'  # Default fallback
 
 
+def _build_excerpt_answer(query: str, retrieved_docs: list[Any], subject: str) -> str:
+    """Build a deterministic fallback answer from retrieved context snippets."""
+    if not retrieved_docs:
+        return (
+            f"I could not access the live AI model right now. "
+            f"Please retry in a moment, or ask a more specific {subject} question."
+        )
+
+    snippets: list[str] = []
+    for doc in retrieved_docs[:3]:
+        content = (doc.page_content or "").strip().replace("\n", " ")
+        if not content:
+            continue
+        snippets.append(content[:260] + ("..." if len(content) > 260 else ""))
+
+    if not snippets:
+        return (
+            f"I found related {subject} material but could not generate a full explanation right now. "
+            "Please try again shortly."
+        )
+
+    joined = "\n\n".join(f"- {snippet}" for snippet in snippets)
+    return (
+        f"I could not reach the live AI model, but I found relevant {subject} references for your question: \"{query}\".\n\n"
+        f"Key points from your study material:\n{joined}\n\n"
+        "You can ask again to get a full explained answer once the model backend is available."
+    )
+
+
 def retriever_agent(query: str, vectorstore, llm, subject: str) -> Dict[str, Any]:
     """
     Retrieval-based QA agent (Tier-1).
@@ -125,35 +264,65 @@ def retriever_agent(query: str, vectorstore, llm, subject: str) -> Dict[str, Any
         Dict with answer, confidence, and sources
     """
     try:
-        if not vectorstore:
-            return {
-                'answer': "I apologize, but I don't have access to the study materials right now.",
-                'confidence': 0.0,
-                'sources': [],
-                'error': 'Vectorstore not available'
-            }
-        
-        # Retrieve relevant documents
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-        retrieved_docs = retriever.invoke(query)
-        
-        if not retrieved_docs:
-            # Fallback: Direct LLM response
+        def _llm_fallback_answer() -> str:
+            if llm is None:
+                raise RuntimeError("LLM instance unavailable")
+
             fallback_template = """You are an expert NEET tutor specializing in {subject}.
-Answer the question clearly and concisely for a NEET student.
+Answer the student's question clearly and concisely.
+When possible, include key definitions, one short example, and a quick exam tip.
 
 Question: {question}
 
 Answer:"""
-            
+
             fallback_chain = PromptTemplate.from_template(fallback_template) | llm | StrOutputParser()
-            answer = fallback_chain.invoke({"subject": subject, "question": query})
+            return fallback_chain.invoke({"subject": subject, "question": query})
+
+        if vectorstore is None:
+            try:
+                answer = _llm_fallback_answer()
+            except Exception as llm_exc:
+                logger.warning(f"LLM fallback without vectorstore failed: {llm_exc}")
+                answer = (
+                    "I can still help, but the AI model backend is currently unavailable. "
+                    "Please retry shortly, or ask a specific concept and I will return available reference snippets."
+                )
+
+            return {
+                'answer': _format_for_chat_display(answer, query, subject),
+                'confidence': 0.45,
+                'sources': [],
+                'method': 'fallback_no_vectorstore',
+                'warning': 'Vectorstore not available'
+            }
+        
+        # Retrieve relevant documents (best-effort; embeddings backend may be unavailable).
+        retrieval_warning = None
+        try:
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+            retrieved_docs = retriever.invoke(query)
+        except Exception as retrieval_exc:
+            retrieval_warning = str(retrieval_exc)
+            logger.warning(f"Retriever invoke failed, falling back without RAG: {retrieval_exc}")
+            retrieved_docs = []
+        
+        if not retrieved_docs:
+            # Fallback: Direct LLM response (if available), else deterministic guidance.
+            try:
+                answer = _llm_fallback_answer()
+                confidence = 0.6
+            except Exception as llm_exc:
+                logger.warning(f"LLM fallback with empty retrieval failed: {llm_exc}")
+                answer = _build_excerpt_answer(query=query, retrieved_docs=[], subject=subject)
+                confidence = 0.3
             
             return {
-                'answer': answer,
-                'confidence': 0.6,
+                'answer': _format_for_chat_display(answer, query, subject),
+                'confidence': confidence,
                 'sources': [],
-                'method': 'fallback'
+                'method': 'fallback',
+                'warning': retrieval_warning,
             }
         
         # Build context from retrieved documents
@@ -170,8 +339,18 @@ Question: {question}
 
 Answer:"""
         
-        rag_chain = PromptTemplate.from_template(rag_template) | llm | StrOutputParser()
-        answer = rag_chain.invoke({"context": context_str, "question": query})
+        try:
+            if llm is None:
+                raise RuntimeError("LLM instance unavailable")
+            rag_chain = PromptTemplate.from_template(rag_template) | llm | StrOutputParser()
+            answer = rag_chain.invoke({"context": context_str, "question": query})
+            method = 'rag'
+            confidence = 0.9
+        except Exception as llm_exc:
+            logger.warning(f"RAG synthesis failed, using excerpt fallback: {llm_exc}")
+            answer = _build_excerpt_answer(query=query, retrieved_docs=retrieved_docs, subject=subject)
+            method = 'retrieval_excerpt_fallback'
+            confidence = 0.5
         
         # Extract source metadata
         sources = []
@@ -185,17 +364,21 @@ Answer:"""
             })
         
         return {
-            'answer': answer,
-            'confidence': 0.9,
+            'answer': _format_for_chat_display(answer, query, subject),
+            'confidence': confidence,
             'sources': sources,
-            'method': 'rag',
+            'method': method,
             'documents_retrieved': len(retrieved_docs)
         }
         
     except Exception as e:
         logger.error(f"Retriever agent failed: {e}", exc_info=True)
         return {
-            'answer': "I encountered an error while processing your question. Please try again.",
+            'answer': _format_for_chat_display(
+                "I encountered an error while processing your question. Please try again.",
+                query,
+                subject,
+            ),
             'confidence': 0.0,
             'sources': [],
             'error': str(e)
@@ -241,7 +424,7 @@ Response:"""
         context_parts = []
         
         for subj, store in vectorstores.items():
-            if store:
+            if store is not None:
                 try:
                     retriever = store.as_retriever(search_kwargs={"k": 2})
                     docs = retriever.invoke(query)
@@ -281,7 +464,7 @@ Answer:"""
             answer = synthesis_chain.invoke({"context": context_str, "query": query})
             
             return {
-                'answer': answer,
+                'answer': _format_for_chat_display(answer, query, subject),
                 'confidence': 0.85,
                 'sources': all_sources[:5],  # Top 5 sources
                 'reasoning': analysis,
@@ -300,7 +483,7 @@ Answer:"""
             answer = fallback_chain.invoke({"query": query})
             
             return {
-                'answer': answer,
+                'answer': _format_for_chat_display(answer, query, subject),
                 'confidence': 0.6,
                 'sources': [],
                 'reasoning': analysis,
@@ -310,7 +493,11 @@ Answer:"""
     except Exception as e:
         logger.error(f"Orchestrator agent failed: {e}", exc_info=True)
         return {
-            'answer': "I encountered an error while processing your complex question. Please try simplifying it or try again.",
+            'answer': _format_for_chat_display(
+                "I encountered an error while processing your complex question. Please try simplifying it or try again.",
+                query,
+                subject,
+            ),
             'confidence': 0.0,
             'sources': [],
             'error': str(e)

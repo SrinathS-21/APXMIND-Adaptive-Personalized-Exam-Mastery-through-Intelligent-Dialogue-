@@ -20,10 +20,10 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...api.middleware.auth import get_current_user
@@ -49,6 +49,8 @@ from ...db.models import (
     QuizAttemptAnswer,
     QuizAttemptSummary,
     QuizQuestion,
+    MistakeCard,
+    TopicMastery,
     User,
     UserBadge,
     BadgeDefinition,
@@ -202,6 +204,94 @@ def _generate_sample_questions(subject, difficulty, count, topic):
     ]
 
 
+async def _upsert_mistake_card(
+    db: AsyncSession,
+    user_id: int,
+    quiz: Quiz,
+    question: QuizQuestion,
+):
+    """Create or update error notebook card for wrong answers."""
+    now = datetime.utcnow()
+    card_result = await db.execute(
+        select(MistakeCard).where(
+            MistakeCard.user_id == user_id,
+            MistakeCard.subject == quiz.subject,
+            MistakeCard.topic == (question.topic or ""),
+            MistakeCard.prompt_snapshot == question.question_text,
+            MistakeCard.status == "active",
+        )
+    )
+    card = card_result.scalar_one_or_none()
+
+    if card:
+        card.times_seen += 1
+        card.times_repeated += 1
+        card.last_seen_at = now
+        card.next_due_at = now + timedelta(days=1)
+        if question.explanation and not card.correct_explanation:
+            card.correct_explanation = question.explanation
+        card.updated_at = now
+        return
+
+    db.add(
+        MistakeCard(
+            user_id=user_id,
+            subject=quiz.subject,
+            topic=question.topic or "",
+            source_type="quiz",
+            source_id=quiz.id,
+            error_reason_code="concept_confusion",
+            prompt_snapshot=question.question_text,
+            correct_explanation=question.explanation,
+            times_seen=1,
+            times_repeated=0,
+            last_seen_at=now,
+            next_due_at=now + timedelta(days=1),
+            status="active",
+        )
+    )
+
+
+async def _upsert_topic_mastery(
+    db: AsyncSession,
+    user_id: int,
+    subject: str,
+    topic: str,
+    is_correct: bool,
+):
+    """Update mastery score and confidence from quiz answer quality."""
+    topic_key = topic.strip() if topic and topic.strip() else "general"
+    observed_score = 92.0 if is_correct else 28.0
+    observed_confidence = 72.0 if is_correct else 35.0
+    now = datetime.utcnow()
+
+    result = await db.execute(
+        select(TopicMastery).where(
+            TopicMastery.user_id == user_id,
+            TopicMastery.subject == subject,
+            TopicMastery.topic == topic_key,
+        )
+    )
+    row = result.scalar_one_or_none()
+
+    if row:
+        row.mastery_score = round(float(row.mastery_score) * 0.75 + observed_score * 0.25, 2)
+        row.confidence = round(float(row.confidence) * 0.7 + observed_confidence * 0.3, 2)
+        row.last_assessed_at = now
+        return
+
+    db.add(
+        TopicMastery(
+            user_id=user_id,
+            subject=subject,
+            topic=topic_key,
+            mastery_score=round(observed_score, 2),
+            confidence=round(observed_confidence, 2),
+            last_assessed_at=now,
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # POST /api/quiz  — start quiz
 # ---------------------------------------------------------------------------
@@ -269,20 +359,36 @@ async def start_quiz(
 async def list_quizzes(
     subject: str = Query(default=None),
     quiz_status: str = Query(default=None, alias="status"),
+    difficulty: str = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Quiz).where(Quiz.user_id == user.id).order_by(Quiz.started_at.desc())
+    filters = [Quiz.user_id == user.id]
     if subject:
-        stmt = stmt.where(Quiz.subject == subject)
+        filters.append(Quiz.subject == subject)
     if quiz_status:
-        stmt = stmt.where(Quiz.status == quiz_status)
-    stmt = stmt.limit(limit)
+        filters.append(Quiz.status == quiz_status)
+    if difficulty:
+        filters.append(Quiz.difficulty == difficulty)
+
+    total_result = await db.execute(
+        select(func.count()).select_from(Quiz).where(*filters)
+    )
+    total = int(total_result.scalar_one() or 0)
+
+    stmt = (
+        select(Quiz)
+        .where(*filters)
+        .order_by(Quiz.started_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
 
     result = await db.execute(stmt)
     quizzes = result.scalars().all()
-    return QuizListResponse(quizzes=[_quiz_to_meta(q) for q in quizzes], total=len(quizzes))
+    return QuizListResponse(quizzes=[_quiz_to_meta(q) for q in quizzes], total=total)
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +475,17 @@ async def submit_answer(
         )
         db.add(ans)
 
+    if not is_correct:
+        await _upsert_mistake_card(db, user.id, quiz, question)
+
+    await _upsert_topic_mastery(
+        db,
+        user_id=user.id,
+        subject=quiz.subject,
+        topic=question.topic or quiz.topic or "general",
+        is_correct=is_correct,
+    )
+
     # Append event
     await append_event(
         db,
@@ -377,8 +494,29 @@ async def submit_answer(
         subject=quiz.subject,
         entity_type="quiz",
         entity_id=quiz_id,
-        payload={"question_id": request.question_id, "is_correct": is_correct},
+        payload={
+            "question_id": request.question_id,
+            "is_correct": is_correct,
+            "confidence_level": request.confidence_level,
+        },
     )
+
+    if request.confidence_level is not None:
+        await append_event(
+            db,
+            user_id=user.id,
+            event_type="confidence_recorded",
+            subject=quiz.subject,
+            entity_type="quiz_question",
+            entity_id=str(request.question_id),
+            event_value=float(request.confidence_level),
+            payload={
+                "quiz_id": quiz_id,
+                "question_id": request.question_id,
+                "confidence_level": request.confidence_level,
+                "is_correct": is_correct,
+            },
+        )
 
     await db.commit()
 
@@ -449,6 +587,35 @@ async def update_answer(
     ans.user_answer = request.user_answer
     ans.is_correct = is_correct
     ans.score_awarded = XP_PER_CORRECT if is_correct else 0
+
+    if not is_correct:
+        await _upsert_mistake_card(db, user.id, quiz, question)
+
+    await _upsert_topic_mastery(
+        db,
+        user_id=user.id,
+        subject=quiz.subject,
+        topic=question.topic or quiz.topic or "general",
+        is_correct=is_correct,
+    )
+
+    if request.confidence_level is not None:
+        await append_event(
+            db,
+            user_id=user.id,
+            event_type="confidence_recorded",
+            subject=quiz.subject,
+            entity_type="quiz_question",
+            entity_id=str(question_id),
+            event_value=float(request.confidence_level),
+            payload={
+                "quiz_id": quiz_id,
+                "question_id": question_id,
+                "confidence_level": request.confidence_level,
+                "is_correct": is_correct,
+            },
+        )
+
     await db.commit()
 
     return SubmitAnswerResponse(

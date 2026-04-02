@@ -1,0 +1,13 @@
+TicketID,Epic,Title,Release,Estimate,Priority,DependsOn,AcceptanceSummary
+BL-01,E1,Lesson recall submission and feedback,R1,M,P0,,"Recall prompt on lesson completion; self-check feedback; offline save"
+BL-02,E1,Daily mixed mini-set,R1,M,P0,,"5 mixed cross-subject questions; completion telemetry"
+BL-03,E2,Error notebook auto-log,R1,M,P0,BL-02,"Wrong answers become mistake cards with reason tags"
+BL-04,E2,Confidence capture and calibration basics,R1,S,P1,BL-02,"Confidence slider + confidence-accuracy gap card"
+BL-05,E3,Spaced scheduler core,R2,L,P0,BL-01,"D+1/D+3/D+7/D+14 scheduling and requeue logic"
+BL-06,E3,Spaced queue API and UI,R2,M,P0,BL-05,"Due queue fetch and completion updates"
+BL-07,E4,Mastery state labels and risk scoring,R2,M,P1,BL-03,"Not started/shaky/strong plus top risk topics"
+BL-08,E4,Weekly report export,R2,M,P1,BL-07,"Offline report with retention/accuracy/speed/risk"
+BL-09,E5,Adaptive planner generation,R3,L,P0,BL-06,"Daily plan from weak topics, due queue, and time budget"
+BL-10,E5,Planner task execution tracking,R3,M,P1,BL-09,"Task status tracking and adherence percentage"
+BL-11,E6,Exam stamina timed drills,R3,M,P1,BL-02,"Timed sectional drill with fatigue analysis"
+BL-12,E7,Sync journal and batch sync API,R3,L,P0,BL-06,"Retry-safe sync with idempotency keys"

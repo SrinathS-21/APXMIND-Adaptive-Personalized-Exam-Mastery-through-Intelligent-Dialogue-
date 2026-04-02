@@ -87,11 +87,13 @@ def create_app() -> FastAPI:
     from .routes.sse import router as sse_router
     from .routes.recommendations import router as recommendations_router
     from .routes.insights import router as insights_router
-    from .routes.security import router as security_router
-    from .routes.payments import router as payments_router
     from .routes.notifications import router as notifications_router
-    from .routes.admin import router as admin_router
     from .routes.support import router as support_router, reports_router
+    from .routes.retrieval import router as retrieval_router
+    from .routes.errors import router as errors_router
+    from .routes.planner import router as planner_router
+    from .routes.exam import router as exam_router
+    from .routes.sync import router as sync_router
 
     app.include_router(query_router,        prefix="/api/query",        tags=["Query"])
     app.include_router(subjects_router,     prefix="/api/subjects",     tags=["Subjects"])
@@ -110,11 +112,13 @@ def create_app() -> FastAPI:
     app.include_router(sse_router,           prefix="/api/events",       tags=["Events"])
     app.include_router(recommendations_router, prefix="/api/recommendations", tags=["Recommendations"])
     app.include_router(insights_router,      prefix="/api/insights",     tags=["Insights"])
-    app.include_router(security_router,      prefix="/api/security",     tags=["Security"])
-    app.include_router(payments_router,      prefix="/api/payments",     tags=["Payments"])
     app.include_router(notifications_router, prefix="/api/notifications", tags=["Notifications"])
-    app.include_router(admin_router,         prefix="/api/admin",         tags=["Admin"])
     app.include_router(support_router,       prefix="/api/support",       tags=["Support"])
+    app.include_router(retrieval_router,     prefix="/api/retrieval",     tags=["Retrieval"])
+    app.include_router(errors_router,        prefix="/api/errors",        tags=["Error Notebook"])
+    app.include_router(planner_router,       prefix="/api/planner",       tags=["Planner"])
+    app.include_router(exam_router,          prefix="/api/exam",          tags=["Exam"])
+    app.include_router(sync_router,          prefix="/api/sync",          tags=["Sync"])
     app.include_router(reports_router,       prefix="/api",               tags=["Reports"])
 
     # ── Health check ────────────────────────────────────────────────────
@@ -156,7 +160,10 @@ def create_app() -> FastAPI:
                     "generate_quiz": "POST /api/trainer/generate-quiz",
                     "submit_answer": "POST /api/trainer/submit-answer",
                 },
-                "dashboard": {"summary": "GET /api/dashboard/summary"},
+                "dashboard": {
+                    "summary": "GET /api/dashboard/summary",
+                    "next_actions": "GET /api/dashboard/next-actions",
+                },
                 "progress": {
                     "daily":         "GET  /api/progress/daily",
                     "gamification":  "GET  /api/progress/gamification",
@@ -218,29 +225,34 @@ def create_app() -> FastAPI:
                 "insights": {
                     "mastery":          "GET /api/insights/mastery",
                     "mastery_subject":  "GET /api/insights/mastery/{subject}",
+                    "risk_topics":      "GET /api/insights/risk-topics",
+                    "calibration":      "GET /api/insights/calibration",
+                    "weekly_report":    "GET /api/insights/weekly-report",
                     "readiness":        "GET /api/insights/readiness",
                     "habits":           "GET /api/insights/habits",
                 },
-                "security": {
-                    "password_reset_request": "POST /api/security/password-reset/request",
-                    "password_reset_confirm": "POST /api/security/password-reset/confirm",
-                    "sessions":               "GET  /api/security/sessions",
-                    "revoke_session":         "POST /api/security/sessions/{session_id}/revoke",
-                    "revoke_others":          "POST /api/security/sessions/revoke-others",
-                    "login_history":          "GET  /api/security/login-history",
-                    "events":                 "GET  /api/security/events",
+                "retrieval": {
+                    "lesson_recall":       "POST /api/retrieval/lesson-recall",
+                    "spaced_queue":        "GET  /api/retrieval/spaced-queue",
+                    "complete_spaced_item": "POST /api/retrieval/spaced-queue/{id}/complete",
                 },
-                "payments": {
-                    "plans":                 "GET  /api/payments/plans",
-                    "current_subscription":  "GET  /api/payments/subscriptions/current",
-                    "checkout":              "POST /api/payments/checkout",
-                    "verify":                "POST /api/payments/verify",
-                    "cancel_subscription":   "POST /api/payments/subscriptions/{id}/cancel",
-                    "payments":              "GET  /api/payments/payments",
-                    "invoices":              "GET  /api/payments/invoices",
-                    "promo_validate":        "POST /api/payments/promo/validate",
-                    "wallet":                "GET  /api/payments/wallet",
-                    "wallet_transactions":   "GET  /api/payments/wallet/transactions",
+                "errors": {
+                    "list_mistake_cards":  "GET   /api/errors/mistake-cards",
+                    "update_mistake_card": "PATCH /api/errors/mistake-cards/{id}",
+                },
+                "planner": {
+                    "generate":    "POST  /api/planner/generate",
+                    "strategist":  "POST  /api/planner/strategist",
+                    "daily":       "GET   /api/planner/daily",
+                    "update_task": "PATCH /api/planner/tasks/{id}",
+                },
+                "exam": {
+                    "start_stamina":  "POST /api/exam/stamina/sessions",
+                    "finish_stamina": "POST /api/exam/stamina/sessions/{id}/finish",
+                },
+                "sync": {
+                    "batch":  "POST /api/sync/batch",
+                    "status": "GET  /api/sync/status",
                 },
                 "notifications": {
                     "list":         "GET    /api/notifications",
@@ -252,22 +264,6 @@ def create_app() -> FastAPI:
                     "update_prefs": "PUT    /api/notifications/preferences",
                     "push_add":     "POST   /api/notifications/push-tokens",
                     "push_delete":  "DELETE /api/notifications/push-tokens/{id}",
-                },
-                "admin": {
-                    "dashboard":            "GET   /api/admin/dashboard",
-                    "users":                "GET   /api/admin/users",
-                    "user_detail":          "GET   /api/admin/users/{id}",
-                    "user_update":          "PATCH /api/admin/users/{id}",
-                    "user_block":           "POST  /api/admin/users/{id}/block",
-                    "tickets":              "GET   /api/admin/tickets",
-                    "ticket_update":        "PATCH /api/admin/tickets/{id}",
-                    "ticket_assign":        "POST  /api/admin/tickets/{id}/assign",
-                    "reports":              "GET   /api/admin/reports",
-                    "report_update":        "PATCH /api/admin/reports/{id}",
-                    "feature_flags":        "GET   /api/admin/feature-flags",
-                    "feature_flag_update":  "PATCH /api/admin/feature-flags/{id}",
-                    "settings":             "GET   /api/admin/settings",
-                    "settings_update":      "PUT   /api/admin/settings",
                 },
                 "support": {
                     "tickets":       "GET  /api/support/tickets",

@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...api.middleware.auth import get_current_user
@@ -147,21 +147,35 @@ async def start_session(
 @router.get("/sessions", response_model=SessionListResponse)
 async def list_sessions(
     subject: str = Query(default=None),
+    session_status: str = Query(default=None, alias="status"),
     limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    filters = [LearningSession.user_id == user.id]
+    if subject:
+        filters.append(LearningSession.subject == subject)
+    if session_status == "active":
+        filters.append(LearningSession.ended_at.is_(None))
+    elif session_status == "completed":
+        filters.append(LearningSession.ended_at.is_not(None))
+
+    total_result = await db.execute(
+        select(func.count()).select_from(LearningSession).where(*filters)
+    )
+    total = int(total_result.scalar_one() or 0)
+
     stmt = (
         select(LearningSession)
-        .where(LearningSession.user_id == user.id)
+        .where(*filters)
         .order_by(LearningSession.started_at.desc())
+        .offset(offset)
         .limit(limit)
     )
-    if subject:
-        stmt = stmt.where(LearningSession.subject == subject)
     result = await db.execute(stmt)
     sessions = result.scalars().all()
-    return SessionListResponse(sessions=[_session_to_out(s) for s in sessions], total=len(sessions))
+    return SessionListResponse(sessions=[_session_to_out(s) for s in sessions], total=total)
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +241,18 @@ async def delete_session(
     db: AsyncSession = Depends(get_db),
 ):
     session = await _get_session_or_404(db, session_id, user.id)
+
+    # Keep analytics rows but detach them from this session so FK constraints
+    # do not block session deletion.
+    await db.execute(
+        update(QueryEvent)
+        .where(
+            QueryEvent.session_id == session_id,
+            QueryEvent.user_id == user.id,
+        )
+        .values(session_id=None)
+    )
+
     await db.delete(session)
     await db.commit()
 

@@ -46,6 +46,24 @@ interface StudyNoteItem {
   updatedAt: string;
 }
 
+interface BookmarkApiItem {
+  id: string;
+  title: string;
+  subject: string;
+  lesson_id?: number;
+  path?: string;
+  saved_at: string;
+}
+
+interface StudyNoteApiItem {
+  id: string;
+  title: string;
+  content: string;
+  subject?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 const isTemporaryId = (value: string) => value.startsWith('tmp-');
 
 export function LibraryPage() {
@@ -74,8 +92,8 @@ export function LibraryPage() {
       setLoadError(null);
       try {
         const [bookmarksRes, notesRes] = await Promise.all([
-          apiClient.get('/api/library/bookmarks'),
-          apiClient.get('/api/library/notes'),
+          apiClient.get<{ bookmarks?: BookmarkApiItem[] }>('/api/library/bookmarks'),
+          apiClient.get<{ notes?: StudyNoteApiItem[] }>('/api/library/notes'),
         ]);
 
         if (!active) return;
@@ -84,7 +102,7 @@ export function LibraryPage() {
         const notesData = notesRes.data?.notes ?? [];
 
         setBookmarks(
-          bookmarksData.map((item: any) => ({
+          bookmarksData.map((item) => ({
             id: item.id,
             title: item.title,
             subject: item.subject,
@@ -95,7 +113,7 @@ export function LibraryPage() {
         );
 
         setNotes(
-          notesData.map((item: any) => ({
+          notesData.map((item) => ({
             id: item.id,
             title: item.title,
             content: item.content,
@@ -173,13 +191,13 @@ export function LibraryPage() {
           prev.map((item) =>
             item.id === temporaryId
               ? {
-                  id: note.id,
-                  title: note.title,
-                  content: note.content,
-                  subject: note.subject ?? undefined,
-                  createdAt: note.created_at,
-                  updatedAt: note.updated_at,
-                }
+                id: note.id,
+                title: note.title,
+                content: note.content,
+                subject: note.subject ?? undefined,
+                createdAt: note.created_at,
+                updatedAt: note.updated_at,
+              }
               : item
           )
         );

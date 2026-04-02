@@ -48,16 +48,27 @@ def verify_models():
         errors.append(f"Security models import failed: {e}")
         print(f"  ❌ {errors[-1]}")
 
-    # Test 3: Import payment models
-    print("\n[3/5] Testing payment model imports...")
+    # Test 3: Verify removed payment models stay removed
+    print("\n[3/5] Verifying payment model removal...")
     try:
-        from src.apxmind.db.models import (
-            SubscriptionPlan, UserSubscription, Payment,
-            Invoice, PromoCode, UserWallet
-        )
-        print("  ✅ Payment models imported successfully")
-    except ImportError as e:
-        errors.append(f"Payment models import failed: {e}")
+        from src.apxmind import db as _db_pkg
+        model_module = _db_pkg.models
+        removed_models = [
+            "SubscriptionPlan",
+            "UserSubscription",
+            "Payment",
+            "Invoice",
+            "PromoCode",
+            "UserWallet",
+        ]
+        still_present = [name for name in removed_models if hasattr(model_module, name)]
+        if still_present:
+            errors.append(f"Removed payment models still present: {still_present}")
+            print(f"  ❌ {errors[-1]}")
+        else:
+            print("  ✅ Payment models are removed")
+    except Exception as e:
+        errors.append(f"Payment model removal verification failed: {e}")
         print(f"  ❌ {errors[-1]}")
 
     # Test 4: Import notification models
@@ -72,16 +83,16 @@ def verify_models():
         errors.append(f"Notification models import failed: {e}")
         print(f"  ❌ {errors[-1]}")
 
-    # Test 5: Import admin models
-    print("\n[5/5] Testing admin model imports...")
+    # Test 5: Import support/moderation models
+    print("\n[5/5] Testing support/moderation model imports...")
     try:
         from src.apxmind.db.models import (
-            AdminRole, AdminUser, SupportTicket,
-            FeatureFlag, ContentReport
+            SupportTicket, FeatureFlag, ContentReport,
+            UserWarning, UserBan
         )
-        print("  ✅ Admin models imported successfully")
+        print("  ✅ Support/moderation models imported successfully")
     except ImportError as e:
-        errors.append(f"Admin models import failed: {e}")
+        errors.append(f"Support/moderation models import failed: {e}")
         print(f"  ❌ {errors[-1]}")
 
     # Test 6: Verify User model extensions
@@ -91,8 +102,7 @@ def verify_models():
 
         # Check new columns
         required_columns = [
-            'password_changed_at', 'must_change_password',
-            'subscription_status', 'referral_code'
+            'password_changed_at', 'must_change_password'
         ]
 
         user_columns = [c.name for c in User.__table__.columns]
@@ -106,8 +116,7 @@ def verify_models():
 
         # Check relationships
         required_relationships = [
-            'password_reset_tokens', 'subscriptions', 'notifications',
-            'support_tickets', 'payments'
+            'password_reset_tokens', 'notifications', 'support_tickets'
         ]
 
         user_relationships = list(User.__mapper__.relationships.keys())
