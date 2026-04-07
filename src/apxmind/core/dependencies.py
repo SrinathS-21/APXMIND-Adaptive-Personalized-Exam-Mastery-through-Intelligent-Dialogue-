@@ -166,18 +166,34 @@ async def cleanup_resources():
     logger.info("Resources cleaned up")
 
 
+def _ensure_llm_initialized() -> bool:
+    """Lazily initialize LLM resources when startup lifecycle was skipped."""
+    global _llm
+
+    if _llm is not None:
+        return True
+
+    try:
+        settings = get_settings()
+        logger.warning("LLM not initialized at access time; attempting lazy initialization")
+        _init_llm(settings)
+    except Exception as exc:
+        logger.error(f"Lazy LLM initialization failed: {exc}", exc_info=True)
+
+    return _llm is not None
+
 # ─── Dependency providers (for FastAPI Depends) ────────────────────────────
 
 def get_llm():
     """Get the primary LLM instance."""
-    if _llm is None:
+    if not _ensure_llm_initialized():
         raise RuntimeError("LLM not initialized")
     return _llm
 
 
 def get_creative_llm():
     """Get the creative LLM instance."""
-    if _creative_llm is None:
+    if not _ensure_llm_initialized() or _creative_llm is None:
         raise RuntimeError("Creative LLM not initialized")
     return _creative_llm
 
