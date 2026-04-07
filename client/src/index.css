@@ -456,6 +456,91 @@ html.light .home-calendar-panel {
   margin-inline: auto;
 }
 
+.ui-page-shell-wide {
+  max-width: min(1800px, calc(100vw - 48px));
+}
+
+.book-reader-layout {
+  align-items: stretch;
+}
+
+.book-reader-splitter {
+  display: none;
+}
+
+.book-reader-mode-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
+}
+
+@media (min-width: 1024px) {
+  .book-reader-layout.book-reader-layout-open {
+    grid-template-columns: minmax(0, 1fr) 16px minmax(420px, var(--tutor-panel-width, 560px));
+  }
+
+  .book-reader-splitter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    user-select: none;
+    color: var(--text-faint);
+    cursor: col-resize;
+  }
+
+  .book-reader-splitter-line {
+    width: 1px;
+    flex: 1;
+    background: var(--border-subtle);
+  }
+
+  .book-reader-splitter-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+}
+
+/* Book reader PDF view: preserve visual fidelity while keeping text selectable */
+.book-pdf-viewer {
+  overscroll-behavior: contain;
+}
+
+.book-pdf-page-shell {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.book-pdf-page-shell .react-pdf__Page__canvas {
+  display: block;
+  width: 100% !important;
+  height: auto !important;
+  border-radius: 8px;
+}
+
+.book-pdf-page-shell .react-pdf__Page__textContent {
+  inset: 0;
+}
+
+.book-pdf-page-shell .react-pdf__Page__textContent span,
+.book-pdf-page-shell .react-pdf__Page__textContent br {
+  color: transparent !important;
+}
+
+.book-pdf-page-shell .react-pdf__Page__textContent ::selection {
+  background: rgba(180, 83, 9, 0.25);
+}
+
 /* Learn chat presentation layer */
 .chat-thread {
   display: flex;

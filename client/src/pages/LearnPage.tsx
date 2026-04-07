@@ -13,13 +13,11 @@ import {
   Divider,
 } from '@heroui/react';
 import { motion } from 'framer-motion';
-import { Send, Bot, User, Sparkles, ArrowLeft, History, List, Trash2, MoreHorizontal, Plus } from 'lucide-react';
+import { Send, Bot, User, Sparkles, ArrowLeft, History, List, MoreHorizontal, Plus } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { processQuery } from '../lib/queryService';
 import {
-  clearLearnMessages,
-  deleteLearnMessage,
   deleteLearnSession,
   endLearnSession,
   getLearnMessages,
@@ -112,10 +110,8 @@ export function LearnPage() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [historySession, setHistorySession] = useState<LearnSession | null>(null);
-  const [historyMessages, setHistoryMessages] = useState<LearnMessage[]>([]);
   const [loadingHistorySessionId, setLoadingHistorySessionId] = useState<string | null>(null);
   const [historyBusySessionId, setHistoryBusySessionId] = useState<string | null>(null);
-  const [historyBusyMessageId, setHistoryBusyMessageId] = useState<number | null>(null);
   const [isRailCollapsed, setIsRailCollapsed] = useState(false);
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
   const [deletedSessionIds, setDeletedSessionIds] = useState<string[]>([]);
@@ -207,30 +203,6 @@ export function LearnPage() {
     }
   }
 
-  async function handleViewSessionHistory(targetSessionId: string) {
-    if (loadingHistorySessionId) return;
-    if (historySession?.id === targetSessionId) {
-      setHistorySession(null);
-      setHistoryMessages([]);
-      return;
-    }
-
-    setLoadingHistorySessionId(targetSessionId);
-    setSessionsError(null);
-    try {
-      const [sessionMeta, messages] = await Promise.all([
-        getLearnSession(targetSessionId),
-        getLearnMessages(targetSessionId, 80),
-      ]);
-      setHistorySession(sessionMeta);
-      setHistoryMessages(messages);
-    } catch (error) {
-      setSessionsError(getApiErrorMessage(error, 'Unable to load selected session transcript.'));
-    } finally {
-      setLoadingHistorySessionId(null);
-    }
-  }
-
   function mapPersistedMessagesToChat(rows: LearnMessage[]): Message[] {
     return rows.map((msg) => ({
       id: String(msg.id),
@@ -257,7 +229,6 @@ export function LearnPage() {
       setDraftSessionTitle(sessionTitles[sessionMeta.id] ?? '');
       setMessages(remapped.length ? remapped : [buildWelcomeMessage(subject)]);
       setHistorySession(sessionMeta);
-      setHistoryMessages(persisted);
       if (options?.showToast ?? true) {
         addToast('Previous learning session reopened.', 'success');
       }
@@ -285,7 +256,6 @@ export function LearnPage() {
 
     if (historySession?.id === targetSessionId) {
       setHistorySession(null);
-      setHistoryMessages([]);
     }
 
     if (sessionId === targetSessionId) {
@@ -302,23 +272,6 @@ export function LearnPage() {
       setDeletedSessionIds((prev) => prev.filter((id) => id !== targetSessionId));
       setRecentSessions(previousSessions);
       setSessionsError(getApiErrorMessage(error, 'Unable to delete this session.'));
-    } finally {
-      setHistoryBusySessionId(null);
-    }
-  }
-
-  async function handleClearHistoryMessages(targetSessionId: string) {
-    if (historyBusySessionId) return;
-    setHistoryBusySessionId(targetSessionId);
-    setSessionsError(null);
-    try {
-      await clearLearnMessages(targetSessionId);
-      if (historySession?.id === targetSessionId) {
-        setHistoryMessages([]);
-      }
-      addToast('Session transcript cleared.', 'success');
-    } catch (error) {
-      setSessionsError(getApiErrorMessage(error, 'Unable to clear session transcript.'));
     } finally {
       setHistoryBusySessionId(null);
     }
@@ -385,25 +338,8 @@ export function LearnPage() {
     setMessages([buildWelcomeMessage(subject)]);
     setInput('');
     setHistorySession(null);
-    setHistoryMessages([]);
     setMenuSessionId(null);
     addToast('Ready for a new chat. A session is created after your first message.', 'success');
-  }
-
-  async function handleDeleteHistoryMessage(targetSessionId: string, messageId: number) {
-    if (historyBusyMessageId) return;
-    setHistoryBusyMessageId(messageId);
-    setSessionsError(null);
-    try {
-      await deleteLearnMessage(targetSessionId, messageId);
-      if (historySession?.id === targetSessionId) {
-        setHistoryMessages((prev) => prev.filter((msg) => msg.id !== messageId));
-      }
-    } catch (error) {
-      setSessionsError(getApiErrorMessage(error, 'Unable to delete this message.'));
-    } finally {
-      setHistoryBusyMessageId(null);
-    }
   }
 
   // Track subject studied for badge
@@ -457,7 +393,6 @@ export function LearnPage() {
     setDraftSessionTitle('');
     setMessages([buildWelcomeMessage(subject)]);
     setHistorySession(null);
-    setHistoryMessages([]);
     setMenuSessionId(null);
     void loadRecentSessions(subject);
   }, [subject, lessonId]);
@@ -535,7 +470,7 @@ export function LearnPage() {
       return;
     }
     if (recallText.trim().length < 20) {
-      addToast('Write at least 20 characters in your recall summary.', 'warning');
+      addToast('Write at least 20 characters in your recall summary.', 'info');
       return;
     }
 

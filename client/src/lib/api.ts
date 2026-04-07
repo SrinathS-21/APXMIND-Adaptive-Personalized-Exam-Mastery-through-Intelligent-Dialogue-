@@ -145,6 +145,7 @@ export const API_ENDPOINTS = {
   subjects: '/api/subjects',
   subjectLessons: (subject: string) => `/api/subjects/${subject}/lessons`,
   query: '/api/query',
+  bookTutor: '/api/books/tutor',
   generateQuiz: '/api/trainer/generate-quiz',
   submitAnswer: '/api/trainer/submit-answer',
   // Auth

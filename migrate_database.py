@@ -359,10 +359,10 @@ async def link_lessons(db: AsyncSession):
     print("[MIGRATING] Linking lessons to topics...")
 
     # Get all subjects and their topics
-    result = await db.execute(select(Subject))
-    subjects = {s.id: s for s in result.scalars().all()}
+    result = await db.execute(select(Subject.id, Subject.name))
+    subjects = [(row[0], row[1]) for row in result.all()]
 
-    for subject_id, subject in subjects.items():
+    for subject_id, subject_name in subjects:
         result = await db.execute(
             select(Topic).where(Topic.subject_id == subject_id)
         )
@@ -395,7 +395,8 @@ async def link_lessons(db: AsyncSession):
                     break
 
         await db.commit()
-        print(f"[SUCCESS] Linked {linked_count} lessons for {subject.name}")
+        # Use cached name to avoid async lazy-load after commit.
+        print(f"[SUCCESS] Linked {linked_count} lessons for {subject_name}")
 
 
 async def calculate_mastery(db: AsyncSession):

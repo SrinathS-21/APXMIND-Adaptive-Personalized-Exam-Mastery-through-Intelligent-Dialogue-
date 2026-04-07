@@ -49,6 +49,10 @@ class QueryRequest(BaseModel):
 
 class SourceInfo(BaseModel):
     content: str = ""
+    title: str = ""
+    page: Optional[int] = None
+    subject: str = ""
+    relevance: float = 0.0
     metadata: dict = Field(default_factory=dict)
 
 
@@ -58,7 +62,7 @@ class QueryMetadata(BaseModel):
     intent: str = ""
     subject: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    sources: List[str] = Field(default_factory=list)
+    sources: List[SourceInfo] = Field(default_factory=list)
     tier0_latency_ms: float = 0.0
     tier1_latency_ms: float = 0.0
     tier2_latency_ms: float = 0.0
@@ -184,7 +188,7 @@ class OfflineProfileRequest(BaseModel):
     dob: Optional[str] = None
     current_class: Optional[str] = "12th"
     attempt_number: Optional[int] = 1
-    target_year: Optional[str] = None
+    target_year: Optional[int] = None
     target_score: Optional[int] = 650
     strong_subjects: List[str] = Field(default_factory=list)
     weak_subjects: List[str] = Field(default_factory=list)
@@ -203,7 +207,7 @@ class UpdateProfileRequest(BaseModel):
     dob: Optional[str] = None
     current_class: Optional[str] = None
     attempt_number: Optional[int] = None
-    target_year: Optional[str] = None
+    target_year: Optional[int] = None
     target_score: Optional[int] = None
     strong_subjects: Optional[List[str]] = None
     weak_subjects: Optional[List[str]] = None
@@ -239,7 +243,7 @@ class UserResponse(BaseModel):
     dob: Optional[str] = None
     current_class: Optional[str] = None
     attempt_number: Optional[int] = None
-    target_year: Optional[str] = None
+    target_year: Optional[int] = None
     target_score: Optional[int] = None
     strong_subjects: List[str] = Field(default_factory=list)
     weak_subjects: List[str] = Field(default_factory=list)

@@ -294,7 +294,8 @@ export function DashboardPage() {
         setPeriodProgress(progressMap);
 
         const todayIso = toIsoDate(todayDate);
-        const newestIso = Object.keys(progressMap).sort().at(-1) ?? null;
+        const sortedKeys = Object.keys(progressMap).sort();
+        const newestIso = sortedKeys.length > 0 ? sortedKeys[sortedKeys.length - 1] : null;
         setSelectedHeatmapDay((prev) => {
           if (prev && progressMap[prev]) return prev;
           if (progressMap[todayIso]) return todayIso;

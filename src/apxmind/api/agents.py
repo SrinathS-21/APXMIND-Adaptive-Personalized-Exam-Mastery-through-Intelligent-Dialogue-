@@ -325,8 +325,17 @@ Answer:"""
                 'warning': retrieval_warning,
             }
         
-        # Build context from retrieved documents
-        context_str = "\n\n".join([doc.page_content for doc in retrieved_docs])
+        # Build a bounded context to keep local Ollama inference stable on low-RAM machines.
+        max_doc_chars = 1200
+        max_context_chars = 3200
+        context_parts = []
+        for doc in retrieved_docs:
+            text = (doc.page_content or "").strip()
+            if not text:
+                continue
+            context_parts.append(text[:max_doc_chars])
+
+        context_str = "\n\n".join(context_parts)[:max_context_chars]
         
         # Generate answer using RAG
         rag_template = """Answer the question based on the following context from NEET study materials.
