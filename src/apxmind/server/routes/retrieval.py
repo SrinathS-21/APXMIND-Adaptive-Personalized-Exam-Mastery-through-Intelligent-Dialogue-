@@ -9,7 +9,7 @@ GET  /api/retrieval/spaced-queue
 POST /api/retrieval/spaced-queue/{review_id}/complete
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -31,6 +31,21 @@ from ...db.session import get_db
 router = APIRouter()
 
 _INTERVAL_SEQUENCE = [1, 3, 7, 14, 21, 30, 45]
+
+
+def _parse_due_before(raw_value: str) -> datetime:
+    value = (raw_value or "").strip()
+    if not value:
+        raise ValueError("empty due_before")
+
+    normalized = value
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def _score_band(score: int) -> str:
@@ -194,9 +209,12 @@ async def get_spaced_queue(
     cutoff = datetime.utcnow()
     if due_before:
         try:
-            cutoff = datetime.fromisoformat(due_before)
+            cutoff = _parse_due_before(due_before)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid due_before datetime") from exc
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid due_before datetime. Use ISO 8601, e.g. 2026-04-12T23:59:59Z",
+            ) from exc
 
     result = await db.execute(
         select(SpacedReview)

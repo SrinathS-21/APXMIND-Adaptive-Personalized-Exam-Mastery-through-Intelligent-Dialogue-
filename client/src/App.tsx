@@ -19,6 +19,7 @@ import { SupportPage } from './pages/SupportPage';
 import { LearnSessionsPage } from './pages/LearnSessionsPage';
 import { DailyMiniSetPage } from './pages/DailyMiniSetPage';
 import { ExamStaminaPage } from './pages/ExamStaminaPage';
+import { NotebookStudioPage } from './pages/NotebookStudioPage';
 
 /** Show a minimal loading state while Zustand rehydrates from localStorage */
 function HydrationGate({ children }: { children: React.ReactNode }) {
@@ -102,6 +103,7 @@ function App() {
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/support" element={<SupportPage />} />
             <Route path="/learn-sessions" element={<LearnSessionsPage />} />
+            <Route path="/notebook-studio" element={<NotebookStudioPage />} />
             <Route path="/mini-set" element={<DailyMiniSetPage />} />
             <Route path="/exam/stamina" element={<ExamStaminaPage />} />
             <Route path="/learning" element={<Navigate to="/learn-sessions" replace />} />

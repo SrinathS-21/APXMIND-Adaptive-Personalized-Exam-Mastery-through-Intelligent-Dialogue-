@@ -545,47 +545,120 @@ html.light .home-calendar-panel {
 .chat-thread {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+}
+
+.chat-surface {
+  position: relative;
+  background:
+    radial-gradient(1200px 320px at 20% -20%, color-mix(in srgb, var(--accent-soft) 45%, transparent), transparent 62%),
+    radial-gradient(900px 280px at 100% 0%, color-mix(in srgb, var(--blue-soft) 45%, transparent), transparent 58%),
+    var(--bg-1);
+}
+
+.chat-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.chat-row-assistant {
+  justify-content: flex-start;
+}
+
+.chat-row-user {
+  justify-content: flex-end;
+}
+
+.chat-avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.chat-avatar-assistant {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 58%, #10b981 42%),
+    color-mix(in srgb, var(--blue) 58%, var(--accent) 42%)
+  );
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.chat-avatar-user {
+  background: var(--bg-3);
+  border: 1px solid var(--border-default);
 }
 
 .chat-assistant-card {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-2) 88%, var(--blue-soft) 12%), var(--bg-2));
-  border: 1px solid var(--border-default);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-1) 75%, var(--bg-2) 25%), var(--bg-2));
+  border: 1px solid var(--border-strong);
   border-radius: 16px;
-  border-top-left-radius: 10px;
-  padding: 12px 14px;
+  border-top-left-radius: 12px;
+  padding: 14px 16px;
   color: var(--text-primary);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 20px rgba(0, 0, 0, 0.12);
 }
 
 .chat-user-card {
-  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 72%, #b86bff 28%));
+  background: linear-gradient(
+    140deg,
+    color-mix(in srgb, var(--accent) 92%, #000 8%),
+    color-mix(in srgb, var(--accent) 66%, var(--blue) 34%)
+  );
   border: 1px solid color-mix(in srgb, var(--accent) 72%, #ffffff 28%);
   border-radius: 16px;
-  border-top-right-radius: 10px;
-  padding: 12px 14px;
+  border-top-right-radius: 12px;
+  padding: 14px 16px;
   color: #ffffff;
-  box-shadow: 0 10px 20px color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.chat-bubble-assistant {
+  max-width: min(100%, 78ch);
+}
+
+.chat-bubble-user {
+  max-width: min(84%, 64ch);
 }
 
 .chat-message-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
-  font-size: 10px;
+  margin-bottom: 8px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--text-muted) 82%, var(--text-faint) 18%);
+}
+
+.chat-meta-role {
+  font-weight: 700;
+}
+
+.chat-meta-time {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.86;
 }
 
 .chat-user-card .chat-message-meta {
-  color: rgba(255, 255, 255, 0.82);
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .chat-markdown {
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.72;
+  font-weight: 500;
+  letter-spacing: 0.002em;
+  overflow-wrap: anywhere;
 }
 
 .chat-markdown > :first-child {
@@ -597,65 +670,72 @@ html.light .home-calendar-panel {
 }
 
 .chat-markdown p {
-  margin: 0.5em 0;
+  margin: 0.62em 0;
 }
 
 .chat-markdown h1,
 .chat-markdown h2,
 .chat-markdown h3,
 .chat-markdown h4 {
-  margin: 0.9em 0 0.35em;
+  margin: 1.05em 0 0.42em;
   line-height: 1.28;
   font-family: var(--font-heading);
+  font-weight: 600;
 }
 
-.chat-markdown h1 { font-size: 1.1rem; }
-.chat-markdown h2 { font-size: 1rem; }
-.chat-markdown h3 { font-size: 0.95rem; }
+.chat-markdown h1 { font-size: 1.12rem; }
+.chat-markdown h2 { font-size: 1.02rem; }
+.chat-markdown h3 { font-size: 0.96rem; }
 
 .chat-markdown ul,
 .chat-markdown ol {
-  margin: 0.45em 0;
-  padding-left: 1.15rem;
+  margin: 0.52em 0;
+  padding-left: 1.2rem;
 }
 
 .chat-markdown li + li {
-  margin-top: 0.2rem;
+  margin-top: 0.24rem;
 }
 
 .chat-markdown strong {
-  color: color-mix(in srgb, var(--text-primary) 90%, var(--accent) 10%);
-  font-weight: 600;
+  color: color-mix(in srgb, var(--text-primary) 84%, var(--accent) 16%);
+  font-weight: 700;
 }
 
 .chat-user-card .chat-markdown strong {
   color: #ffffff;
 }
 
+.chat-markdown a {
+  color: color-mix(in srgb, var(--accent) 78%, var(--blue) 22%);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+
 .chat-markdown blockquote {
-  margin: 0.6em 0;
-  padding: 0.5em 0.75em;
-  border-left: 3px solid var(--accent-border);
-  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+  margin: 0.68em 0;
+  padding: 0.6em 0.82em;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 40%, var(--border-default) 60%);
+  background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
   border-radius: 8px;
 }
 
 .chat-markdown code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.84em;
-  background: color-mix(in srgb, var(--bg-4) 85%, #000 15%);
-  border: 1px solid var(--border-subtle);
+  font-size: 0.83em;
+  background: color-mix(in srgb, var(--bg-4) 88%, #000 12%);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
-  padding: 0.1em 0.35em;
+  padding: 0.14em 0.38em;
 }
 
 .chat-markdown pre {
-  margin: 0.65em 0;
+  margin: 0.7em 0;
   overflow: auto;
   border-radius: 10px;
-  border: 1px solid var(--border-default);
-  background: color-mix(in srgb, var(--bg-1) 85%, #000 15%);
-  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--bg-1) 82%, #000 18%);
+  padding: 11px 12px;
 }
 
 .chat-markdown pre code {
@@ -667,26 +747,96 @@ html.light .home-calendar-panel {
 .chat-markdown table {
   width: 100%;
   border-collapse: collapse;
-  margin: 0.65em 0;
+  margin: 0.72em 0;
   font-size: 0.92em;
+  display: block;
+  overflow-x: auto;
 }
 
 .chat-markdown th,
 .chat-markdown td {
-  border: 1px solid var(--border-subtle);
-  padding: 0.38em 0.5em;
+  border: 1px solid var(--border-default);
+  padding: 0.42em 0.52em;
   text-align: left;
 }
 
 .chat-markdown th {
-  background: color-mix(in srgb, var(--bg-3) 80%, #000 20%);
+  background: color-mix(in srgb, var(--bg-3) 88%, #000 12%);
   font-weight: 600;
 }
 
 .chat-markdown hr {
   border: 0;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border-default);
   margin: 0.8em 0;
+}
+
+.chat-user-card .chat-markdown,
+.chat-user-card .chat-markdown * {
+  color: #ffffff;
+}
+
+.chat-user-card .chat-markdown a {
+  color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.75);
+}
+
+.chat-user-card .chat-markdown blockquote {
+  border-left-color: rgba(255, 255, 255, 0.55);
+  background: rgba(17, 24, 39, 0.24);
+}
+
+.chat-user-card .chat-markdown code {
+  background: rgba(17, 24, 39, 0.34);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.chat-user-card .chat-markdown pre {
+  background: rgba(17, 24, 39, 0.42);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+[data-theme="light"] .chat-surface,
+.light .chat-surface {
+  background:
+    radial-gradient(960px 260px at 12% -15%, color-mix(in srgb, var(--accent-soft) 65%, transparent), transparent 60%),
+    radial-gradient(760px 220px at 100% 0%, color-mix(in srgb, var(--amber-soft) 50%, transparent), transparent 58%),
+    color-mix(in srgb, var(--bg-1) 68%, var(--bg-2) 32%);
+}
+
+[data-theme="light"] .chat-assistant-card,
+.light .chat-assistant-card {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-1) 86%, #ffffff 14%),
+    color-mix(in srgb, var(--bg-2) 92%, var(--bg-1) 8%)
+  );
+  border-color: color-mix(in srgb, var(--border-default) 76%, var(--accent-border) 24%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.52),
+    0 10px 20px rgba(92, 60, 35, 0.1);
+}
+
+[data-theme="light"] .chat-user-card,
+.light .chat-user-card {
+  background: linear-gradient(
+    140deg,
+    color-mix(in srgb, var(--accent) 92%, #6b3414 8%),
+    color-mix(in srgb, var(--accent-hover) 88%, #d97706 12%)
+  );
+  border-color: color-mix(in srgb, var(--accent) 64%, #ffffff 36%);
+}
+
+@media (max-width: 900px) {
+  .chat-bubble-assistant,
+  .chat-bubble-user {
+    max-width: 94%;
+  }
+
+  .chat-markdown {
+    font-size: 14.5px;
+    line-height: 1.68;
+  }
 }
 
 [data-theme="light"] .glass,

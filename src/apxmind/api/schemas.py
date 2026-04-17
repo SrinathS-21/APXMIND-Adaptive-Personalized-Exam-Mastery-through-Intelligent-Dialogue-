@@ -7,7 +7,7 @@ These replace the ad-hoc JSON parsing from the Flask controllers.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
 from enum import Enum
 from datetime import datetime
 
@@ -44,6 +44,7 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000, description="The user's question")
     subject: Optional[SubjectEnum] = Field(None, description="Optional subject hint")
     user_id: Optional[int] = Field(None, description="Optional user ID for context")
+    language: Optional[str] = Field(None, description="Preferred response language")
     context: Optional[dict] = Field(default_factory=dict, description="Additional context")
 
 
@@ -116,6 +117,21 @@ class LessonListResponse(BaseModel):
     count: int = 0
 
 
+class LessonMissionContextOut(BaseModel):
+    lesson_id: int
+    subject: str
+    subject_display_name: str
+    lesson_title: str
+    lesson_description: Optional[str] = None
+    difficulty: str = "medium"
+    estimated_minutes: int = 30
+    focus_topics: List[str] = Field(default_factory=list)
+    mission_title: str
+    mission_objectives: List[str] = Field(default_factory=list)
+    starter_prompts: dict[str, str] = Field(default_factory=dict)
+    is_completed: bool = False
+
+
 # ============================================================================
 # TRAINER / QUIZ
 # ============================================================================
@@ -126,6 +142,7 @@ class QuizRequest(BaseModel):
     difficulty: DifficultyEnum = DifficultyEnum.medium
     question_count: int = Field(default=5, ge=1, le=20)
     topics: List[str] = Field(default_factory=list)
+    language: Optional[str] = Field(None, description="Preferred response language")
 
 
 class QuizQuestion(BaseModel):
@@ -159,6 +176,7 @@ class AnswerSubmitRequest(BaseModel):
     quiz_id: str
     question_id: int
     user_answer: str
+    language: Optional[str] = Field(None, description="Preferred response language")
     options: Optional[List[str]] = None
     question_text: Optional[str] = None
     correct_answer: Optional[str] = None
@@ -361,6 +379,7 @@ class StartQuizRequest(BaseModel):
     question_count: int = Field(default=5, ge=1, le=20)
     time_limit_sec: Optional[int] = Field(None, ge=30, le=7200)
     topic: Optional[str] = Field(None, max_length=120)
+    language: Optional[str] = Field(None, description="Preferred response language")
 
 
 class QuizQuestionOut(BaseModel):
@@ -394,6 +413,7 @@ class StartQuizResponse(BaseModel):
 class SubmitAnswerRequest(BaseModel):
     question_id: int
     user_answer: str = Field(..., min_length=1)
+    language: Optional[str] = Field(None, description="Preferred response language")
     confidence_level: Optional[int] = Field(default=None, ge=1, le=5)
 
 
@@ -411,6 +431,7 @@ class SubmitAnswerResponse(BaseModel):
 
 class UpdateAnswerRequest(BaseModel):
     user_answer: str = Field(..., min_length=1)
+    language: Optional[str] = Field(None, description="Preferred response language")
     confidence_level: Optional[int] = Field(default=None, ge=1, le=5)
 
 
@@ -481,6 +502,152 @@ class SessionListResponse(BaseModel):
 
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=4000)
+    language: Optional[str] = Field(None, description="Preferred response language")
+    mode: Optional[str] = Field(None, description="Tutor mode: guided|revision|drill")
+    source_locked: bool = Field(default=False, description="If true, answer strictly from retrieved source evidence")
+    use_uploaded_sources: bool = Field(
+        default=False,
+        description="If true, include Notebook uploaded PDF sources as chat context",
+    )
+    upload_mode: Optional[Literal["quick", "full"]] = Field(
+        default=None,
+        description="Uploaded source strategy: quick=context-only, full=vector retrieval",
+    )
+
+
+class SetSessionModeRequest(BaseModel):
+    mode: str = Field(..., description="Tutor mode: guided|revision|drill")
+
+
+class SessionModeOut(BaseModel):
+    session_id: str
+    mode: str
+    updated_at: str
+
+
+class SetSourceLockRequest(BaseModel):
+    enabled: bool = Field(default=False)
+
+
+class SourceLockOut(BaseModel):
+    session_id: str
+    enabled: bool
+    updated_at: str
+
+
+class SourceCitationOut(BaseModel):
+    source_id: str
+    title: str
+    page: Optional[int] = None
+    subject: Optional[str] = None
+    snippet: str = ""
+    source: Optional[str] = None
+
+
+class GenerateChapterBriefRequest(BaseModel):
+    language: Optional[str] = Field(None, description="Preferred output language")
+    source_locked: bool = Field(default=True, description="If true, use only retrieved source evidence")
+
+
+class NotebookUploadSourceOut(BaseModel):
+    session_id: str
+    source_id: str
+    file_name: str
+    file_size_bytes: int
+    page_count: int
+    text_characters: int
+    index_mode: Literal["quick", "full"]
+    indexed: bool
+    chunk_count: int
+    upload_summary_markdown: Optional[str] = None
+    uploaded_at: str
+
+
+class NotebookSourceOut(BaseModel):
+    source_id: str
+    file_name: str
+    file_size_bytes: int
+    page_count: int
+    text_characters: int
+    index_mode: Literal["quick", "full"]
+    indexed: bool
+    chunk_count: int
+    uploaded_at: str
+
+
+class NotebookSourceListOut(BaseModel):
+    success: bool = True
+    session_id: str
+    sources: List[NotebookSourceOut] = Field(default_factory=list)
+
+
+class ChapterBriefOut(BaseModel):
+    session_id: str
+    language: str
+    markdown: str
+    citations: List[SourceCitationOut] = Field(default_factory=list)
+    generated_at: str
+
+
+class GenerateSessionNotesRequest(BaseModel):
+    language: Optional[str] = Field(None, description="Preferred output language")
+    title: Optional[str] = Field(None, max_length=255)
+
+
+class SessionNotesOut(BaseModel):
+    session_id: str
+    note_id: str
+    title: str
+    language: str
+    markdown: str
+    created_at: str
+
+
+class GenerateRevisionSheetRequest(BaseModel):
+    language: Optional[str] = Field(None, description="Preferred output language")
+
+
+class RevisionSheetItemOut(BaseModel):
+    concept_key: str
+    score_percent: int
+    confidence: Optional[int] = None
+    priority: str
+
+
+class RevisionSheetOut(BaseModel):
+    session_id: str
+    language: str
+    markdown: str
+    items: List[RevisionSheetItemOut] = Field(default_factory=list)
+    generated_at: str
+
+
+class LearnSessionSummaryOut(BaseModel):
+    session_id: str
+    mode: str
+    source_locked: bool
+    message_count: int
+    checkpoint_count: int
+    avg_checkpoint_score: Optional[float] = None
+    latest_checkpoint_score: Optional[int] = None
+    latest_checkpoint_feedback: Optional[str] = None
+    supported_output_languages: List[str] = Field(default_factory=lambda: ["en", "ta"])
+    updated_at: str
+
+
+class SubmitCheckpointRequest(BaseModel):
+    concept_key: str = Field(..., min_length=1, max_length=120)
+    prompt: str = Field(..., min_length=1, max_length=1000)
+    response_text: str = Field(..., min_length=1, max_length=4000)
+    confidence: Optional[int] = Field(default=None, ge=0, le=100)
+
+
+class CheckpointOut(BaseModel):
+    session_id: str
+    concept_key: str
+    score_percent: int
+    feedback: str
+    created_at: str
 
 
 class MessageOut(BaseModel):
@@ -489,6 +656,7 @@ class MessageOut(BaseModel):
     role: str
     content: str
     tier: Optional[str] = None
+    msg_metadata: Optional[dict] = None
     created_at: str
 
 

@@ -29,6 +29,7 @@ import { getDailyProgress, type DailyProgressDay } from '../lib/progressService'
 import { useProfileStore } from '../store/profileStore';
 import { useGamificationStore } from '../store/gamificationStore';
 import { useToast } from '../hooks/useToast';
+import { tUi, uiLocale, weekdayLabels } from '../lib/uiI18n';
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.07 } } };
 const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } };
@@ -237,12 +238,49 @@ function nextActionIcon(action: NextBestAction) {
   return <BookOpen className="w-4 h-4" style={{ color }} />;
 }
 
+function localizeNextAction(
+  action: NextBestAction,
+  translate: (key: string, vars?: Record<string, string | number>) => string
+): NextBestAction {
+  if (action.key === 'continue_learning') {
+    return {
+      ...action,
+      title: translate('home.fallback.continueLearning.title'),
+      description: translate('home.fallback.continueLearning.description'),
+      cta_label: translate('home.fallback.continueLearning.cta'),
+    };
+  }
+
+  if (action.key === 'smart_revision') {
+    return {
+      ...action,
+      title: translate('home.fallback.smartRevision.title'),
+      description: translate('home.fallback.smartRevision.description'),
+      cta_label: translate('home.fallback.smartRevision.cta'),
+    };
+  }
+
+  if (action.key === 'plan_ahead') {
+    return {
+      ...action,
+      title: translate('home.fallback.planAhead.title'),
+      description: translate('home.fallback.planAhead.description'),
+      cta_label: translate('home.fallback.planAhead.cta'),
+    };
+  }
+
+  return action;
+}
+
 export function HomePage() {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const addToastRef = useRef(addToast);
   const heatmapCellRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const profile = useProfileStore((s) => s.profile);
+  const language = profile?.preferredLanguage;
+  const locale = uiLocale(language);
+  const t = (key: string, vars?: Record<string, string | number>) => tUi(language, key, vars);
   const fallbackTotalXP = useGamificationStore((s) => s.totalXP);
   const fallbackCurrentLevel = useGamificationStore((s) => s.currentLevel);
   const fallbackXpForNextLevel = useGamificationStore((s) => s.xpForNextLevel);
@@ -305,11 +343,11 @@ export function HomePage() {
           badgesCount: data.badges_count ?? 0,
         });
         if (summaryRequestKey > 0) {
-          addToastRef.current('Home updated successfully.', 'success');
+          addToastRef.current(t('home.updated'), 'success');
         }
       } catch (error) {
         if (active) {
-          const message = `${getApiErrorMessage(error, 'Unable to load live home data.')} Showing local values.`;
+          const message = `${getApiErrorMessage(error, t('home.error.liveData'))} ${t('home.liveRefreshFailed')}`;
           setSummaryError(message);
           addToastRef.current(message, 'error');
         }
@@ -341,7 +379,7 @@ export function HomePage() {
         setNextActions(actions.slice(0, 3));
       } catch (error) {
         if (!active) return;
-        setNextActionsError(getApiErrorMessage(error, 'Unable to personalize next actions right now.'));
+        setNextActionsError(getApiErrorMessage(error, t('home.error.nextActions')));
         setNextActions([]);
       } finally {
         if (active) {
@@ -364,36 +402,42 @@ export function HomePage() {
   const badgesCount = summary?.badgesCount ?? fallbackBadgesCount;
 
   const dailyTarget = profile?.dailyStudyTarget || 4;
-  const fallbackNextActions = useMemo<NextBestAction[]>(() => [
-    {
-      key: 'continue_learning',
-      title: 'Continue Learning',
-      description: 'Resume your latest chapter with one click.',
-      cta_label: 'Resume Chapter',
-      cta_route: '/books',
-      accent: 'accent',
-      action_kind: 'learning',
-    },
-    {
-      key: 'smart_revision',
-      title: 'Smart Revision',
-      description: 'Take a short weak-area quiz to improve consistency.',
-      cta_label: 'Revise 15 Minutes',
-      cta_route: '/study-plan',
-      accent: 'purple',
-      action_kind: 'revision',
-    },
-    {
-      key: 'plan_ahead',
-      title: 'Plan Ahead',
-      description: 'Set your next study block and keep your streak safe.',
-      cta_label: 'Open Study Plan',
-      cta_route: '/study-plan',
-      accent: 'amber',
-      action_kind: 'planning',
-    },
-  ], []);
-  const renderedNextActions = nextActions.length ? nextActions : fallbackNextActions;
+  const fallbackNextActions = useMemo<NextBestAction[]>(
+    () => [
+      {
+        key: 'continue_learning',
+        title: t('home.fallback.continueLearning.title'),
+        description: t('home.fallback.continueLearning.description'),
+        cta_label: t('home.fallback.continueLearning.cta'),
+        cta_route: '/books',
+        accent: 'accent',
+        action_kind: 'learning',
+      },
+      {
+        key: 'smart_revision',
+        title: t('home.fallback.smartRevision.title'),
+        description: t('home.fallback.smartRevision.description'),
+        cta_label: t('home.fallback.smartRevision.cta'),
+        cta_route: '/study-plan',
+        accent: 'purple',
+        action_kind: 'revision',
+      },
+      {
+        key: 'plan_ahead',
+        title: t('home.fallback.planAhead.title'),
+        description: t('home.fallback.planAhead.description'),
+        cta_label: t('home.fallback.planAhead.cta'),
+        cta_route: '/study-plan',
+        accent: 'amber',
+        action_kind: 'planning',
+      },
+    ],
+    [language]
+  );
+  const renderedNextActions = useMemo(() => {
+    const source = nextActions.length ? nextActions : fallbackNextActions;
+    return source.map((action) => localizeNextAction(action, t));
+  }, [nextActions, fallbackNextActions, language]);
   const studyHoursToday = todayProgress.studyMinutes / 60;
   const dailyPercent = Math.min((studyHoursToday / dailyTarget) * 100, 100);
   const today = useMemo(() => new Date(), []);
@@ -439,7 +483,7 @@ export function HomePage() {
         });
       } catch (error) {
         if (!active) return;
-        const message = getApiErrorMessage(error, 'Unable to load period activity heatmap.');
+        const message = getApiErrorMessage(error, t('home.error.heatmap'));
         setHeatmapError(message);
       } finally {
         if (active) {
@@ -457,15 +501,15 @@ export function HomePage() {
   const heatmapPeriodLabel = useMemo(() => {
     if (heatmapView === 'week') {
       const end = weekEndOf(alignedHeatmapCursor);
-      const startLabel = alignedHeatmapCursor.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      const endLabel = end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      const startLabel = alignedHeatmapCursor.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+      const endLabel = end.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
       return `${startLabel} - ${endLabel}`;
     }
     if (heatmapView === 'year') {
       return String(alignedHeatmapCursor.getFullYear());
     }
-    return alignedHeatmapCursor.toLocaleString(undefined, { month: 'long', year: 'numeric' });
-  }, [alignedHeatmapCursor, heatmapView]);
+    return alignedHeatmapCursor.toLocaleString(locale, { month: 'long', year: 'numeric' });
+  }, [alignedHeatmapCursor, heatmapView, locale]);
 
   const heatmapCells = useMemo(() => {
     const { start, end } = periodBounds(alignedHeatmapCursor, heatmapView);
@@ -606,7 +650,12 @@ export function HomePage() {
   }, [xpForNextLevel]);
 
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const greeting =
+    hour < 12
+      ? t('greeting.morning')
+      : hour < 17
+        ? t('greeting.afternoon')
+        : t('greeting.evening');
   const dailyCompletionPercent = Math.max(0, Math.min(100, Math.round(dailyPercent)));
   const todayIsoNow = toIsoDate(new Date());
 
@@ -616,7 +665,7 @@ export function HomePage() {
         <motion.div variants={item}>
           <Card className="glass" style={{ borderRadius: 'var(--r-md)' }}>
             <CardBody className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3" style={{ padding: 14 }}>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Live home refresh failed. You are seeing local fallback values.</p>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('home.liveRefreshFailed')}</p>
               <Button
                 size="sm"
                 variant="flat"
@@ -624,7 +673,7 @@ export function HomePage() {
                 isLoading={isSummaryLoading}
                 onPress={() => setSummaryRequestKey((value) => value + 1)}
               >
-                Retry
+                {t('home.retry')}
               </Button>
             </CardBody>
           </Card>
@@ -648,13 +697,13 @@ export function HomePage() {
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-5 h-5" style={{ color: 'var(--accent)' }} />
                     <h1 className="text-2xl font-semibold" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>
-                      {greeting}, {profile?.name?.split(' ')[0] || 'Student'}
+                      {greeting}, {profile?.name?.split(' ')[0] || t('app.student')}
                     </h1>
                   </div>
                   <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                     {currentStreak > 0
-                      ? `You are on a ${currentStreak}-day streak. Keep your momentum alive today.`
-                      : 'Start a focused session now and begin your streak.'}
+                      ? t('home.streakMessage', { days: currentStreak })
+                      : t('home.startStreak')}
                   </p>
                 </div>
 
@@ -665,7 +714,7 @@ export function HomePage() {
                     startContent={<Zap className="w-3 h-3" />}
                     style={{ background: 'var(--amber-soft)', color: 'var(--amber)', border: '1px solid var(--amber-border)', borderRadius: 'var(--r-pill)' }}
                   >
-                    Level {currentLevel} • {totalXP} XP
+                    {t('home.levelXpBadge', { level: currentLevel, xp: totalXP })}
                   </Chip>
                   {currentStreak > 0 && (
                     <Chip
@@ -674,7 +723,7 @@ export function HomePage() {
                       startContent={<Flame className="w-3 h-3" />}
                       style={{ background: 'var(--red-soft)', color: 'var(--red)', border: '1px solid var(--red-border)', borderRadius: 'var(--r-pill)' }}
                     >
-                      {currentStreak}d streak
+                      {t('home.streakChip', { days: currentStreak })}
                     </Chip>
                   )}
                 </div>
@@ -692,7 +741,7 @@ export function HomePage() {
               }}
             >
               <CardBody className="p-2.5 md:p-3">
-                <p className="text-[10px] uppercase tracking-wide font-medium" style={{ color: 'var(--text-muted)' }}>XP Today</p>
+                <p className="text-[10px] uppercase tracking-wide font-medium" style={{ color: 'var(--text-muted)' }}>{t('home.xpToday')}</p>
                 <div className="mt-1 flex items-end justify-between gap-1.5">
                   <p className="text-xl font-semibold" style={{ fontFamily: 'var(--font-heading)', color: 'var(--green)' }}>+{todayProgress.xpEarned}</p>
                   <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
@@ -720,7 +769,7 @@ export function HomePage() {
               }}
             >
               <CardBody className="p-2.5 md:p-3">
-                <p className="text-[10px] uppercase tracking-wide font-medium" style={{ color: 'var(--text-muted)' }}>Active Days</p>
+                <p className="text-[10px] uppercase tracking-wide font-medium" style={{ color: 'var(--text-muted)' }}>{t('home.activeDays')}</p>
                 <p className="text-xl font-semibold mt-1" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>{periodMetrics.activeDays}</p>
                 <div className="mt-1.5 flex items-center gap-1">
                   {Array.from({ length: 7 }).map((_, idx) => {
@@ -749,10 +798,10 @@ export function HomePage() {
               }}
             >
               <CardBody className="p-2.5 md:p-3">
-                <p className="text-[10px] uppercase tracking-wide font-medium" style={{ color: 'var(--text-muted)' }}>Avg Focus</p>
+                <p className="text-[10px] uppercase tracking-wide font-medium" style={{ color: 'var(--text-muted)' }}>{t('home.avgFocus')}</p>
                 <div className="mt-1 flex items-end justify-between gap-1.5">
                   <p className="text-xl font-semibold" style={{ fontFamily: 'var(--font-heading)', color: 'var(--amber)' }}>{periodMetrics.avgFocus}%</p>
-                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>focus</span>
+                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{t('home.focus')}</span>
                 </div>
                 <div className="mt-1.5 flex items-center gap-0.5">
                   {Array.from({ length: 10 }).map((_, idx) => {
@@ -782,7 +831,7 @@ export function HomePage() {
               }}
             >
               <CardBody className="p-2.5 md:p-3">
-                <p className="text-[10px] uppercase tracking-wide font-medium" style={{ color: 'var(--text-muted)' }}>Badges</p>
+                <p className="text-[10px] uppercase tracking-wide font-medium" style={{ color: 'var(--text-muted)' }}>{t('home.badges')}</p>
                 <p className="text-xl font-semibold mt-1" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>{badgesCount}</p>
                 <div className="mt-1.5 flex items-center gap-1">
                   {Array.from({ length: 4 }).map((_, idx) => {
@@ -811,9 +860,9 @@ export function HomePage() {
           <Card className="glass" style={{ borderRadius: 'var(--r-lg)' }}>
             <CardBody className="p-3 md:p-3.5 flex flex-col gap-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs uppercase tracking-wide" style={{ color: 'var(--text-faint)' }}>Daily Target</p>
+                <p className="text-xs uppercase tracking-wide" style={{ color: 'var(--text-faint)' }}>{t('home.dailyTarget')}</p>
                 <Chip size="sm" variant="flat" color="secondary" style={{ borderRadius: 'var(--r-pill)' }}>
-                  {dailyTarget}h goal
+                  {t('home.goalHours', { hours: dailyTarget })}
                 </Chip>
               </div>
 
@@ -839,8 +888,8 @@ export function HomePage() {
                     <p className="text-xl font-semibold leading-none" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>
                       {studyHoursToday.toFixed(1)}h
                     </p>
-                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Studied today</p>
-                    <p className="text-xs" style={{ color: 'var(--text-faint)' }}>{Math.max(0, dailyTarget - studyHoursToday).toFixed(1)}h remaining</p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('home.studiedToday')}</p>
+                    <p className="text-xs" style={{ color: 'var(--text-faint)' }}>{t('home.hoursRemaining', { hours: Math.max(0, dailyTarget - studyHoursToday).toFixed(1) })}</p>
                   </div>
 
                   <div className="space-y-1">
@@ -866,7 +915,7 @@ export function HomePage() {
                 <div className="ui-soft-panel p-2 space-y-1">
                   <div className="flex items-center gap-1.5">
                     <BookOpen className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
-                    <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-faint)' }}>Lessons</p>
+                    <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-faint)' }}>{t('home.lessons')}</p>
                   </div>
                   <p className="text-sm font-semibold" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>{todayProgress.lessonsCompleted}</p>
                 </div>
@@ -874,7 +923,7 @@ export function HomePage() {
                 <div className="ui-soft-panel p-2 space-y-1">
                   <div className="flex items-center gap-1.5">
                     <BrainCircuit className="w-3.5 h-3.5" style={{ color: 'var(--purple)' }} />
-                    <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-faint)' }}>Quizzes</p>
+                    <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-faint)' }}>{t('home.quizzes')}</p>
                   </div>
                   <p className="text-sm font-semibold" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>{todayProgress.quizzesTaken}</p>
                 </div>
@@ -889,7 +938,7 @@ export function HomePage() {
           <Card className="glass h-full" style={{ borderRadius: 'var(--r-lg)' }}>
             <CardBody className="p-4 md:p-5">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="ui-section-title">Subjects</h2>
+                <h2 className="ui-section-title">{t('home.subjects')}</h2>
                 <Button
                   size="sm"
                   variant="light"
@@ -897,12 +946,16 @@ export function HomePage() {
                   endContent={<ArrowRight className="w-3 h-3" />}
                   onPress={() => navigate('/books')}
                 >
-                  NCERT Books
+                  {t('nav.ncertBooks')}
                 </Button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {subjectCards.map((s) => (
                   <motion.div key={s.key} variants={item} className="h-full">
+                    {(() => {
+                      const subjectLabel = t(`home.subject.${s.key}.label`);
+                      const subjectDescription = t(`home.subject.${s.key}.description`);
+                      return (
                     <Card
                       className="h-full w-full min-h-52 ui-card-hover"
                       style={{
@@ -919,8 +972,8 @@ export function HomePage() {
                         <div className={`ui-icon-badge ${s.key === 'physics' ? 'ui-icon-badge-blue' : s.key === 'chemistry' ? 'ui-icon-badge-green' : 'ui-icon-badge-purple'} mb-2.5`}>
                           {s.icon}
                         </div>
-                        <h3 className="text-lg font-semibold mb-1" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>{s.label}</h3>
-                        <p className="text-xs mb-3 line-clamp-2 min-h-10" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>{s.description}</p>
+                        <h3 className="text-lg font-semibold mb-1" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>{subjectLabel}</h3>
+                        <p className="text-xs mb-3 line-clamp-2 min-h-10" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>{subjectDescription}</p>
                         <div className="grid grid-cols-2 gap-2 mt-auto w-full">
                           <Button
                             size="sm"
@@ -930,7 +983,7 @@ export function HomePage() {
                             style={subjectLearnButtonStyle(s.tone)}
                             onPress={() => navigate(`/subject/${s.key}`)}
                           >
-                            Learn
+                            {t('home.learn')}
                           </Button>
                           <Button
                             size="sm"
@@ -940,11 +993,13 @@ export function HomePage() {
                             style={subjectQuizButtonStyle(s.tone)}
                             onPress={() => navigate(`/subject/${s.key}/quiz`)}
                           >
-                            Quiz
+                            {t('home.quiz')}
                           </Button>
                         </div>
                       </CardBody>
                     </Card>
+                      );
+                    })()}
                   </motion.div>
                 ))}
               </div>
@@ -953,13 +1008,13 @@ export function HomePage() {
 
           <Card className="glass" style={{ borderRadius: 'var(--r-md)' }}>
             <CardBody className="p-4 space-y-3">
-              <h2 className="ui-section-title">Quick References</h2>
+              <h2 className="ui-section-title">{t('home.quickReferences')}</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {[
-                  { label: 'NCERT Books', icon: <BookOpen className="w-4 h-4" />, path: '/books' },
-                  { label: 'Resources', icon: <Target className="w-4 h-4" />, path: '/resources' },
-                  { label: 'Study Plan', icon: <Clock className="w-4 h-4" />, path: '/study-plan' },
-                  { label: 'Achievements', icon: <Trophy className="w-4 h-4" />, path: '/achievements' },
+                  { label: t('nav.ncertBooks'), icon: <BookOpen className="w-4 h-4" />, path: '/books' },
+                  { label: t('nav.resources'), icon: <Target className="w-4 h-4" />, path: '/resources' },
+                  { label: t('nav.studyPlan'), icon: <Clock className="w-4 h-4" />, path: '/study-plan' },
+                  { label: t('nav.achievements'), icon: <Trophy className="w-4 h-4" />, path: '/achievements' },
                 ].map((a) => (
                   <Button
                     key={`quick-ref-${a.path}`}
@@ -982,20 +1037,20 @@ export function HomePage() {
               <div className="flex items-center justify-between mb-2" style={{ fontSize: 12 }}>
                 <div className="flex items-center gap-2">
                   <Trophy className="w-4 h-4" style={{ color: 'var(--amber)' }} />
-                  <span className="text-sm font-medium" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>Level {currentLevel}</span>
+                  <span className="text-sm font-medium" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>{t('app.level', { level: currentLevel })}</span>
                 </div>
-                <span className="text-xs" style={{ color: 'var(--text-faint)' }}>{xpForNextLevel} XP to Level {currentLevel + 1}</span>
+                <span className="text-xs" style={{ color: 'var(--text-faint)' }}>{t('home.xpToLevel', { xp: xpForNextLevel, level: currentLevel + 1 })}</span>
               </div>
               <Progress
                 value={levelProgress}
                 color="secondary"
                 size="sm"
-                aria-label="Level progress"
+                aria-label={t('app.level', { level: currentLevel })}
                 classNames={{ track: 'bg-bg-5', indicator: 'bg-linear-to-r from-[var(--accent)] to-[#A89CF8]' }}
               />
               <div className="flex justify-between text-xs mt-1.5" style={{ color: 'var(--text-faint)' }}>
-                <span>{badgesCount} badges earned</span>
-                <span>{totalXP} total XP</span>
+                <span>{t('home.badgesEarned', { count: badgesCount })}</span>
+                <span>{t('home.totalXp', { xp: totalXP })}</span>
               </div>
             </CardBody>
           </Card>
@@ -1017,7 +1072,7 @@ export function HomePage() {
                           setHeatmapCursor((prev) => alignToPeriod(prev, view));
                         }}
                       >
-                        {view}
+                        {t(`home.${view}`)}
                       </Button>
                     ))}
                   </div>
@@ -1028,7 +1083,7 @@ export function HomePage() {
                       size="sm"
                       variant="light"
                       onPress={() => setHeatmapCursor((prev) => shiftPeriod(prev, heatmapView, -1))}
-                      aria-label="Previous period"
+                      aria-label={t('home.previousPeriod')}
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </Button>
@@ -1041,7 +1096,7 @@ export function HomePage() {
                       variant="light"
                       isDisabled={isCurrentPeriodView}
                       onPress={() => setHeatmapCursor((prev) => shiftPeriod(prev, heatmapView, 1))}
-                      aria-label="Next period"
+                      aria-label={t('home.nextPeriod')}
                     >
                       <ChevronRight className="w-4 h-4" />
                     </Button>
@@ -1050,15 +1105,15 @@ export function HomePage() {
 
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
-                    Day {selectedHeatmapCell?.date.getDate() ?? '-'}
+                    {t('home.dayNumber', { day: selectedHeatmapCell?.date.getDate() ?? '-' })}
                   </p>
                   <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                    {periodMetrics.activeDays} active
+                    {t('home.activeCount', { count: periodMetrics.activeDays })}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-7 gap-1">
-                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((label, idx) => (
+                  {weekdayLabels(language).map((label, idx) => (
                     <p
                       key={`hm-weekday-right-${label}-${idx}`}
                       className="text-[10px] text-center font-medium"
@@ -1073,7 +1128,7 @@ export function HomePage() {
                   <div className="max-h-56 overflow-y-auto pr-1 space-y-2">
                     {Array.from({ length: 12 }).map((_, monthIndex) => {
                       const monthDate = new Date(alignedHeatmapCursor.getFullYear(), monthIndex, 1);
-                      const monthLabel = monthDate.toLocaleString(undefined, { month: 'short' });
+                      const monthLabel = monthDate.toLocaleString(locale, { month: 'short' });
                       const monthStart = new Date(alignedHeatmapCursor.getFullYear(), monthIndex, 1);
                       const monthEnd = monthEndOf(monthStart);
                       const blockStart = weekStartOf(monthStart);
@@ -1129,8 +1184,8 @@ export function HomePage() {
                                     intensity: cell.intensity,
                                   }, isSelected)}
                                   disabled={!cell.inRange}
-                                  aria-label={`Heatmap ${cell.date.toLocaleDateString()}`}
-                                  title={`${cell.date.toLocaleDateString()} • ${cell.minutes}m • ${cell.lessons} lessons • ${cell.quizzes} quizzes • Focus ${cell.focusPercent}% • +${cell.xp} XP`}
+                                  aria-label={`Heatmap ${cell.date.toLocaleDateString(locale)}`}
+                                  title={`${cell.date.toLocaleDateString(locale)} • ${cell.minutes}m • ${cell.lessons} ${t('home.lessons')} • ${cell.quizzes} ${t('home.quizzes')} • ${t('home.focus')} ${cell.focusPercent}% • +${cell.xp} XP`}
                                 >
                                   {cell.date.getDate()}
                                 </button>
@@ -1161,8 +1216,8 @@ export function HomePage() {
                             intensity: cell.intensity,
                           }, isSelected)}
                           disabled={!cell.inRange}
-                          aria-label={`Heatmap ${cell.date.toLocaleDateString()}`}
-                          title={`${cell.date.toLocaleDateString()} • ${cell.minutes}m • ${cell.lessons} lessons • ${cell.quizzes} quizzes • Focus ${cell.focusPercent}% • +${cell.xp} XP`}
+                          aria-label={`Heatmap ${cell.date.toLocaleDateString(locale)}`}
+                          title={`${cell.date.toLocaleDateString(locale)} • ${cell.minutes}m • ${cell.lessons} ${t('home.lessons')} • ${cell.quizzes} ${t('home.quizzes')} • ${t('home.focus')} ${cell.focusPercent}% • +${cell.xp} XP`}
                         >
                           {cell.date.getDate()}
                         </button>
@@ -1183,7 +1238,7 @@ export function HomePage() {
               <p className="text-xs text-center" style={{ color: 'var(--red)' }}>{heatmapError}</p>
             ) : null}
             {isHeatmapLoading ? (
-              <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>Loading {heatmapView} activity...</p>
+              <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>{t('home.loadingActivity', { view: t(`home.${heatmapView}`).toLowerCase() })}</p>
             ) : null}
           </div>
         </motion.div>
@@ -1193,9 +1248,9 @@ export function HomePage() {
         <Card className="glass" style={{ borderRadius: 'var(--r-lg)' }}>
           <CardBody className="p-4 md:p-5 space-y-3.5">
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h2 className="ui-section-title">Next Best Actions</h2>
+              <h2 className="ui-section-title">{t('home.nextBestActions')}</h2>
               <Chip size="sm" variant="flat" style={{ borderRadius: 'var(--r-pill)', background: 'var(--accent-soft)', border: '1px solid var(--accent-border)', color: 'var(--accent)' }}>
-                Personalized for today
+                {t('home.personalizedToday')}
               </Chip>
             </div>
 
@@ -1225,7 +1280,7 @@ export function HomePage() {
                       onPress={() => navigate(action.cta_route || '/learn-sessions')}
                       endContent={<ArrowRight className="w-3.5 h-3.5" />}
                     >
-                      {action.cta_label || 'Open'}
+                      {action.cta_label || t('home.open')}
                     </Button>
                   </CardBody>
                 </Card>
@@ -1233,7 +1288,7 @@ export function HomePage() {
             </div>
 
             {isNextActionsLoading ? (
-              <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>Personalizing actions...</p>
+              <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>{t('home.personalizingActions')}</p>
             ) : null}
             {nextActionsError ? (
               <p className="text-xs text-center" style={{ color: 'var(--text-faint)' }}>{nextActionsError}</p>

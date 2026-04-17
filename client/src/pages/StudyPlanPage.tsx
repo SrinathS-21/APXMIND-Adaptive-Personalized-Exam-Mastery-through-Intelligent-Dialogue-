@@ -71,15 +71,26 @@ import {
   getDailyProgress,
   recordStudyMinutes,
 } from '../lib/progressService';
+import {
+  localizePlannerTaskStatus,
+  localizePlannerTaskType,
+  localizeRecommendationReason,
+  localizeRecommendationTitle,
+  localizeRecommendationType,
+  localizeTopicLabel,
+  tUi,
+  uiLocale,
+} from '../lib/uiI18n';
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
 const item = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0 } };
 
-const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
 export function StudyPlanPage() {
   const navigate = useNavigate();
   const profile = useProfileStore((s) => s.profile);
+  const language = profile?.preferredLanguage;
+  const locale = uiLocale(language);
+  const t = (key: string, vars?: Record<string, string | number>) => tUi(language, key, vars);
   const { currentStreak, dailyHistory, todayProgress } = useGamificationStore();
   const [planner, setPlanner] = useState<DailyPlannerSnapshot | null>(null);
   const [riskTopics, setRiskTopics] = useState<TopicRisk[]>([]);
@@ -107,6 +118,16 @@ export function StudyPlanPage() {
   const dailyTarget = profile?.dailyStudyTarget || 4;
   const studyHoursToday = todayProgress.studyMinutes / 60;
   const dailyPercent = Math.min((studyHoursToday / dailyTarget) * 100, 100);
+
+  const subjectLabel = (subject?: string | null) => {
+    if (!subject) {
+      return t('study.allSubjects');
+    }
+    if (subject === 'physics' || subject === 'chemistry' || subject === 'biology') {
+      return t(`home.subject.${subject}.label`);
+    }
+    return subject;
+  };
 
   async function loadLiveData() {
     setIsLiveLoading(true);
@@ -150,7 +171,7 @@ export function StudyPlanPage() {
       setMistakeCards(cardRows);
       setDailyProgressRows(dailyRows);
     } catch (error) {
-      setLiveError(getApiErrorMessage(error, 'Unable to load live planning insights.'));
+      setLiveError(getApiErrorMessage(error, t('study.error.loadInsights')));
     } finally {
       setIsLiveLoading(false);
     }
@@ -166,7 +187,7 @@ export function StudyPlanPage() {
       await runStrategistPlanner();
       await loadLiveData();
     } catch (error) {
-      setLiveError(getApiErrorMessage(error, 'Unable to generate daily plan right now.'));
+      setLiveError(getApiErrorMessage(error, t('study.error.generatePlan')));
     } finally {
       setIsGeneratingPlan(false);
     }
@@ -178,7 +199,7 @@ export function StudyPlanPage() {
       await updatePlannerTask(taskId, status);
       await loadLiveData();
     } catch (error) {
-      setLiveError(getApiErrorMessage(error, 'Unable to update task status.'));
+      setLiveError(getApiErrorMessage(error, t('study.error.updateTask')));
     } finally {
       setUpdatingTaskId(null);
     }
@@ -215,7 +236,7 @@ export function StudyPlanPage() {
       await updateRecommendationStatus(recommendationId, status);
       setRecommendations((prev) => prev.filter((item) => item.id !== recommendationId));
     } catch (error) {
-      setLiveError(getApiErrorMessage(error, 'Unable to update recommendation right now.'));
+      setLiveError(getApiErrorMessage(error, t('study.error.updateRecommendation')));
     } finally {
       setUpdatingRecommendationId(null);
     }
@@ -227,7 +248,7 @@ export function StudyPlanPage() {
       await deleteRecommendation(recommendationId);
       setRecommendations((prev) => prev.filter((item) => item.id !== recommendationId));
     } catch (error) {
-      setLiveError(getApiErrorMessage(error, 'Unable to delete recommendation right now.'));
+      setLiveError(getApiErrorMessage(error, t('study.error.deleteRecommendation')));
     } finally {
       setUpdatingRecommendationId(null);
     }
@@ -239,7 +260,7 @@ export function StudyPlanPage() {
       await completeSpacedReview(reviewId, result, result === 'incorrect' ? 2 : 4);
       setSpacedQueue((prev) => prev.filter((item) => item.id !== reviewId));
     } catch (error) {
-      setLiveError(getApiErrorMessage(error, 'Unable to update spaced review right now.'));
+      setLiveError(getApiErrorMessage(error, t('study.error.updateReview')));
     } finally {
       setUpdatingReviewId(null);
     }
@@ -251,7 +272,7 @@ export function StudyPlanPage() {
       await updateMistakeCardStatus(cardId, 'resolved');
       setMistakeCards((prev) => prev.filter((card) => card.id !== cardId));
     } catch (error) {
-      setLiveError(getApiErrorMessage(error, 'Unable to update mistake card.'));
+      setLiveError(getApiErrorMessage(error, t('study.error.updateMistake')));
     } finally {
       setUpdatingCardId(null);
     }
@@ -260,7 +281,7 @@ export function StudyPlanPage() {
   async function handleRecordManualStudy() {
     const parsed = Number.parseInt(manualMinutes, 10);
     if (!Number.isFinite(parsed) || parsed < 1 || parsed > 720) {
-      setLiveError('Study minutes must be between 1 and 720.');
+      setLiveError(t('study.error.minutesRange'));
       return;
     }
 
@@ -273,11 +294,17 @@ export function StudyPlanPage() {
         setManualStudyMessage(result.message);
       } else {
         const xpAwarded = result.xp_awarded ?? 0;
-        setManualStudyMessage(`Recorded ${parsed} minutes in ${manualSubject}. +${xpAwarded} XP`);
+        setManualStudyMessage(
+          t('study.recordedMinutes', {
+            minutes: parsed,
+            subject: t(`home.subject.${manualSubject}.label`),
+            xp: xpAwarded,
+          })
+        );
       }
       await loadLiveData();
     } catch (error) {
-      setLiveError(getApiErrorMessage(error, 'Unable to record manual study minutes.'));
+      setLiveError(getApiErrorMessage(error, t('study.error.recordMinutes')));
     } finally {
       setIsRecordingMinutes(false);
     }
@@ -295,7 +322,7 @@ export function StudyPlanPage() {
     const fallbackProgress = isTodayDate ? todayProgress : historyEntry;
     const backendProgress = progressByDate.get(dateStr);
     return {
-      day: daysOfWeek[date.getDay() === 0 ? 6 : date.getDay() - 1],
+      day: date.toLocaleDateString(locale, { weekday: 'short' }),
       date: dateStr,
       minutes: backendProgress?.study_minutes ?? fallbackProgress?.studyMinutes ?? 0,
       xp: backendProgress?.xp_earned ?? fallbackProgress?.xpEarned ?? 0,
@@ -332,7 +359,7 @@ export function StudyPlanPage() {
       <motion.div variants={item}>
         <h1 className="flex items-center gap-2" style={{ fontFamily: 'var(--font-heading)', fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>
           <CalendarDays className="w-6 h-6 text-primary" />
-          Study Plan
+          {t('study.title')}
         </h1>
       </motion.div>
 
@@ -342,9 +369,9 @@ export function StudyPlanPage() {
           {daysUntilNEET !== null && (
             <Card className="glass" style={{ background: 'var(--bg-3)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--r-lg)' }}>
               <CardBody className="text-center" style={{ padding: '28px 20px' }}>
-                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Days Until NEET {profile?.targetYear}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{t('study.daysUntilNeet', { year: profile?.targetYear || '' })}</p>
                 <p style={{ fontFamily: 'var(--font-heading)', fontSize: 56, fontWeight: 600, color: 'var(--accent)', lineHeight: 1 }}>{daysUntilNEET}</p>
-                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Stay focused, stay consistent!</p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('study.stayFocused')}</p>
               </CardBody>
             </Card>
           )}
@@ -353,23 +380,23 @@ export function StudyPlanPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center gap-2">
                 <Target className="w-4 h-4 text-success" />
-                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>Today's Progress</h2>
+                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{t('study.todayProgress')}</h2>
               </div>
             </CardHeader>
             <CardBody className="gap-3">
               <div className="flex items-center justify-between">
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Study Time</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('study.studyTime')}</span>
                 <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{Math.round(studyHoursToday * 10) / 10}h / {dailyTarget}h</span>
               </div>
               <Progress value={dailyPercent} color="success" size="md" classNames={{ track: 'bg-bg-5', indicator: 'bg-linear-to-r from-[#22C55E] to-[var(--green)]' }} />
               <div className="grid grid-cols-3 gap-3 mt-2">
                 <div className="text-center">
                   <p className="text-lg font-semibold" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>{todayProgress.lessonsCompleted}</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Lessons</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('home.lessons')}</p>
                 </div>
                 <div className="text-center">
                   <p className="text-lg font-semibold" style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>{todayProgress.quizzesTaken}</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Quizzes</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('home.quizzes')}</p>
                 </div>
                 <div className="text-center">
                   <p className="text-lg font-semibold" style={{ fontFamily: 'var(--font-heading)', color: 'var(--amber)' }}>+{todayProgress.xpEarned}</p>
@@ -385,7 +412,7 @@ export function StudyPlanPage() {
                 <div className="flex items-center gap-2">
                   <Target className="w-4 h-4 text-secondary" />
                   <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                    Adaptive Daily Plan
+                    {t('study.adaptivePlan')}
                   </h2>
                 </div>
                 <div className="flex items-center gap-2">
@@ -397,7 +424,7 @@ export function StudyPlanPage() {
                     onPress={() => void loadLiveData()}
                     isDisabled={isLiveLoading}
                   >
-                    Refresh
+                    {t('study.refresh')}
                   </Button>
                   <Button
                     size="sm"
@@ -405,25 +432,25 @@ export function StudyPlanPage() {
                     onPress={() => void handleGeneratePlan()}
                     isLoading={isGeneratingPlan}
                   >
-                    Generate Plan
+                    {t('study.generatePlan')}
                   </Button>
                 </div>
               </CardHeader>
               <CardBody className="space-y-3">
                 {isLiveLoading ? (
                   <div className="py-5 flex items-center justify-center">
-                    <Spinner size="sm" color="secondary" label="Loading planner" />
+                    <Spinner size="sm" color="secondary" label={t('study.loadingPlanner')} />
                   </div>
                 ) : (
                   <>
                     {planner ? (
                       <div className="flex flex-wrap gap-2">
-                        <Chip size="sm" variant="flat">{planner.total} tasks</Chip>
-                        <Chip size="sm" variant="flat">{planner.planned_minutes} min planned</Chip>
-                        <Chip size="sm" variant="flat" color="success">{planner.completed_count} completed</Chip>
-                        <Chip size="sm" variant="flat" color="warning">{planner.pending_count} pending</Chip>
+                        <Chip size="sm" variant="flat">{t('study.tasksCount', { count: planner.total })}</Chip>
+                        <Chip size="sm" variant="flat">{t('study.minutesPlanned', { minutes: planner.planned_minutes })}</Chip>
+                        <Chip size="sm" variant="flat" color="success">{t('study.completedCount', { count: planner.completed_count })}</Chip>
+                        <Chip size="sm" variant="flat" color="warning">{t('study.pendingCount', { count: planner.pending_count })}</Chip>
                         <Chip size="sm" variant="flat" color="secondary">
-                          {planner.day_adherence_percent.toFixed(0)}% adherence
+                          {t('study.adherence', { percent: planner.day_adherence_percent.toFixed(0) })}
                         </Chip>
                       </div>
                     ) : null}
@@ -439,10 +466,10 @@ export function StudyPlanPage() {
                             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                               <div>
                                 <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                                  {task.task_type.replace('_', ' ')}: {task.topic || 'General revision'}
+                                  {localizePlannerTaskType(language, task.task_type)}: {localizeTopicLabel(language, task.topic) || t('study.generalRevision')}
                                 </p>
                                 <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                  {(task.subject || 'all subjects').toUpperCase()} • {task.recommended_minutes} minutes • priority {task.priority_score.toFixed(1)}
+                                  {subjectLabel(task.subject)} • {task.recommended_minutes} {t('study.minutes')} • {t('study.priority', { score: task.priority_score.toFixed(1) })}
                                 </p>
                               </div>
                               <div className="flex items-center gap-1.5">
@@ -451,7 +478,7 @@ export function StudyPlanPage() {
                                   variant="flat"
                                   color={task.status === 'completed' ? 'success' : task.status === 'skipped' ? 'danger' : 'warning'}
                                 >
-                                  {task.status}
+                                  {localizePlannerTaskStatus(language, task.status)}
                                 </Chip>
                                 {task.status === 'pending' && (
                                   <>
@@ -463,7 +490,7 @@ export function StudyPlanPage() {
                                         startContent={<Sparkles className="w-3 h-3" />}
                                         onPress={() => handleLaunchMiniSet(task)}
                                       >
-                                        Start Mini-Set
+                                        {t('study.startMiniSet')}
                                       </Button>
                                     ) : task.task_type === 'stamina' ? (
                                       <Button
@@ -473,7 +500,7 @@ export function StudyPlanPage() {
                                         startContent={<Clock className="w-3 h-3" />}
                                         onPress={() => handleLaunchStamina(task)}
                                       >
-                                        Start Stamina
+                                        {t('study.startStamina')}
                                       </Button>
                                     ) : (
                                       <Button
@@ -484,7 +511,7 @@ export function StudyPlanPage() {
                                         startContent={<Check className="w-3 h-3" />}
                                         onPress={() => void handleTaskUpdate(task.id, 'completed')}
                                       >
-                                        Done
+                                        {t('study.done')}
                                       </Button>
                                     )}
                                     <Button
@@ -495,7 +522,7 @@ export function StudyPlanPage() {
                                       startContent={<X className="w-3 h-3" />}
                                       onPress={() => void handleTaskUpdate(task.id, 'skipped')}
                                     >
-                                      Skip
+                                      {t('study.skip')}
                                     </Button>
                                   </>
                                 )}
@@ -506,7 +533,7 @@ export function StudyPlanPage() {
                       </div>
                     ) : (
                       <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        No planner tasks available for today. Click Generate Plan to create one.
+                        {t('study.noPlannerTasks')}
                       </p>
                     )}
                   </>
@@ -525,12 +552,12 @@ export function StudyPlanPage() {
               <Card className="glass">
                 <CardHeader className="pb-2">
                   <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                    Top Risk Topics
+                    {t('study.topRiskTopics')}
                   </h2>
                 </CardHeader>
                 <CardBody className="space-y-2">
                   {isLiveLoading ? (
-                    <Spinner size="sm" color="warning" label="Loading risks" />
+                    <Spinner size="sm" color="warning" label={t('study.loadingRisks')} />
                   ) : riskTopics.length ? (
                     riskTopics.map((topic) => (
                       <div key={`${topic.subject}-${topic.topic}`} className="rounded-md p-2" style={{ border: '1px solid var(--border-subtle)' }}>
@@ -543,7 +570,7 @@ export function StudyPlanPage() {
                       </div>
                     ))
                   ) : (
-                    <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No risk topics identified yet.</p>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('study.noRiskTopics')}</p>
                   )}
                 </CardBody>
               </Card>
@@ -551,25 +578,25 @@ export function StudyPlanPage() {
               <Card className="glass">
                 <CardHeader className="pb-2">
                   <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                    Calibration & Weekly Summary
+                    {t('study.calibrationWeekly')}
                   </h2>
                 </CardHeader>
                 <CardBody className="space-y-1.5">
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Confidence gap: <strong>{(calibration?.confidence_accuracy_gap ?? 0).toFixed(1)}%</strong>
+                    {t('study.confidenceGap')}: <strong>{(calibration?.confidence_accuracy_gap ?? 0).toFixed(1)}%</strong>
                   </p>
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Confident-wrong: <strong>{(calibration?.confident_wrong_rate ?? 0).toFixed(1)}%</strong>
+                    {t('study.confidentWrong')}: <strong>{(calibration?.confident_wrong_rate ?? 0).toFixed(1)}%</strong>
                   </p>
                   <Divider className="my-1" />
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Retention: <strong>{(weeklySummary?.retention_score ?? 0).toFixed(1)}%</strong>
+                    {t('study.retention')}: <strong>{(weeklySummary?.retention_score ?? 0).toFixed(1)}%</strong>
                   </p>
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Accuracy: <strong>{(weeklySummary?.accuracy_percent ?? 0).toFixed(1)}%</strong>
+                    {t('study.accuracy')}: <strong>{(weeklySummary?.accuracy_percent ?? 0).toFixed(1)}%</strong>
                   </p>
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Speed: <strong>{(weeklySummary?.speed_qph ?? 0).toFixed(1)} q/h</strong>
+                    {t('study.speed')}: <strong>{(weeklySummary?.speed_qph ?? 0).toFixed(1)} q/h</strong>
                   </p>
                 </CardBody>
               </Card>
@@ -577,18 +604,18 @@ export function StudyPlanPage() {
               <Card className="glass">
                 <CardHeader className="pb-2">
                   <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                    Spaced Revision Queue
+                    {t('study.spacedQueue')}
                   </h2>
                 </CardHeader>
                 <CardBody className="space-y-2">
                   {isLiveLoading ? (
-                    <Spinner size="sm" color="secondary" label="Loading queue" />
+                    <Spinner size="sm" color="secondary" label={t('study.loadingQueue')} />
                   ) : spacedQueue.length ? (
                     spacedQueue.map((item) => (
                       <div key={item.id} className="rounded-md p-2" style={{ border: '1px solid var(--border-subtle)' }}>
                         <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{item.topic}</p>
                         <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                          {(item.subject || 'general').toUpperCase()} • due {new Date(item.due_at).toLocaleDateString()} • streak {item.streak}
+                          {subjectLabel(item.subject)} • {t('study.due', { date: new Date(item.due_at).toLocaleDateString(locale) })} • {t('study.streak', { count: item.streak })}
                         </p>
                         <div className="flex items-center gap-1.5 mt-2">
                           <Button
@@ -598,7 +625,7 @@ export function StudyPlanPage() {
                             isLoading={updatingReviewId === item.id}
                             onPress={() => void handleCompleteReview(item.id, 'correct')}
                           >
-                            Correct
+                            {t('study.correct')}
                           </Button>
                           <Button
                             size="sm"
@@ -607,7 +634,7 @@ export function StudyPlanPage() {
                             isLoading={updatingReviewId === item.id}
                             onPress={() => void handleCompleteReview(item.id, 'partial')}
                           >
-                            Partial
+                            {t('study.partial')}
                           </Button>
                           <Button
                             size="sm"
@@ -616,13 +643,13 @@ export function StudyPlanPage() {
                             isLoading={updatingReviewId === item.id}
                             onPress={() => void handleCompleteReview(item.id, 'incorrect')}
                           >
-                            Incorrect
+                            {t('study.incorrect')}
                           </Button>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No due revision items in the next 48 hours.</p>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('study.noDueRevisions')}</p>
                   )}
                 </CardBody>
               </Card>
@@ -630,20 +657,20 @@ export function StudyPlanPage() {
               <Card className="glass">
                 <CardHeader className="pb-2">
                   <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                    Error Notebook
+                    {t('study.errorNotebook')}
                   </h2>
                 </CardHeader>
                 <CardBody className="space-y-2">
                   {isLiveLoading ? (
-                    <Spinner size="sm" color="warning" label="Loading mistakes" />
+                    <Spinner size="sm" color="warning" label={t('study.loadingMistakes')} />
                   ) : mistakeCards.length ? (
                     mistakeCards.map((card) => (
                       <div key={card.id} className="rounded-md p-2" style={{ border: '1px solid var(--border-subtle)' }}>
                         <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>
-                          {card.topic || 'General concept'}
+                          {card.topic || t('study.generalConcept')}
                         </p>
                         <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                          {card.error_reason_code} • repeated {card.times_repeated} times
+                          {card.error_reason_code} • {t('study.repeatedTimes', { count: card.times_repeated })}
                         </p>
                         <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
                           {card.prompt_snapshot.slice(0, 120)}{card.prompt_snapshot.length > 120 ? '...' : ''}
@@ -656,12 +683,12 @@ export function StudyPlanPage() {
                           isLoading={updatingCardId === card.id}
                           onPress={() => void handleResolveMistakeCard(card.id)}
                         >
-                          Mark Resolved
+                          {t('study.markResolved')}
                         </Button>
                       </div>
                     ))
                   ) : (
-                    <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No active mistake cards right now.</p>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('study.noMistakeCards')}</p>
                   )}
                 </CardBody>
               </Card>
@@ -674,7 +701,7 @@ export function StudyPlanPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center gap-2">
                 <Flame className="w-4 h-4 text-danger" />
-                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>This Week ({currentStreak} day streak)</h2>
+                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{t('study.thisWeek', { days: currentStreak })}</h2>
               </div>
             </CardHeader>
             <CardBody>
@@ -728,7 +755,7 @@ export function StudyPlanPage() {
                 })}
               </div>
               <p className="mt-2" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-                Heatmap uses live rows from /api/progress/daily with local fallback.
+                {t('study.heatmapNote')}
               </p>
             </CardBody>
           </Card>
@@ -738,7 +765,7 @@ export function StudyPlanPage() {
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-primary" />
                 <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  Log Study Minutes
+                  {t('study.logMinutes')}
                 </h2>
               </div>
             </CardHeader>
@@ -749,7 +776,7 @@ export function StudyPlanPage() {
                 max={720}
                 value={manualMinutes}
                 onValueChange={setManualMinutes}
-                label="Minutes"
+                label={t('study.minutesLabel')}
                 size="sm"
                 variant="bordered"
               />
@@ -763,7 +790,7 @@ export function StudyPlanPage() {
                     onPress={() => setManualSubject(subjectKey)}
                     className="capitalize"
                   >
-                    {subjectKey}
+                    {t(`home.subject.${subjectKey}.label`)}
                   </Button>
                 ))}
               </div>
@@ -773,7 +800,7 @@ export function StudyPlanPage() {
                 onPress={() => void handleRecordManualStudy()}
                 isLoading={isRecordingMinutes}
               >
-                Record Minutes
+                {t('study.recordMinutes')}
               </Button>
               {manualStudyMessage ? (
                 <Chip size="sm" color="success" variant="flat" className="w-full justify-center">
@@ -788,7 +815,7 @@ export function StudyPlanPage() {
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-blue-400" />
                 <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  Readiness & Habits
+                  {t('study.readinessHabits')}
                 </h2>
               </div>
             </CardHeader>
@@ -797,37 +824,37 @@ export function StudyPlanPage() {
                 <>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Chip size="sm" variant="flat" color="secondary">
-                      {readinessLatest.risk_band || 'Unknown risk'}
+                      {readinessLatest.risk_band || t('study.unknownRisk')}
                     </Chip>
                     <Chip size="sm" variant="flat">
-                      snapshot {new Date(readinessLatest.snapshot_date).toLocaleDateString()}
+                      {t('study.snapshot', { date: new Date(readinessLatest.snapshot_date).toLocaleDateString(locale) })}
                     </Chip>
                   </div>
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Projected score: <strong>{Math.round(readinessLatest.projected_score ?? 0)}</strong>
+                    {t('study.projectedScore')}: <strong>{Math.round(readinessLatest.projected_score ?? 0)}</strong>
                   </p>
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Coverage: <strong>{(readinessLatest.syllabus_coverage_percent ?? 0).toFixed(1)}%</strong>
+                    {t('study.coverage')}: <strong>{(readinessLatest.syllabus_coverage_percent ?? 0).toFixed(1)}%</strong>
                   </p>
                   <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Consistency: <strong>{(readinessLatest.consistency_score ?? 0).toFixed(1)}%</strong>
+                    {t('study.consistency')}: <strong>{(readinessLatest.consistency_score ?? 0).toFixed(1)}%</strong>
                   </p>
                   <Divider className="my-1" />
                 </>
               ) : (
                 <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  No readiness snapshot yet. Continue quizzes and revision to generate one.
+                  {t('study.noReadiness')}
                 </p>
               )}
 
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-success" />
                 <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  7d focus avg: <strong>{avgFocusMinutes.toFixed(0)}m/day</strong>
+                  {t('study.focusAvg', { minutes: avgFocusMinutes.toFixed(0) })}
                 </p>
               </div>
               <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                Sessions/day: <strong>{avgSessions.toFixed(1)}</strong> • Interruptions/day: <strong>{avgInterruptions.toFixed(1)}</strong>
+                {t('study.sessionsPerDay')}: <strong>{avgSessions.toFixed(1)}</strong> • {t('study.interruptionsPerDay')}: <strong>{avgInterruptions.toFixed(1)}</strong>
               </p>
             </CardBody>
           </Card>
@@ -835,12 +862,12 @@ export function StudyPlanPage() {
           <Card className="glass">
             <CardHeader className="pb-2">
               <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                Mastery Snapshot
+                {t('study.masterySnapshot')}
               </h2>
             </CardHeader>
             <CardBody className="space-y-2">
               {isLiveLoading ? (
-                <Spinner size="sm" color="secondary" label="Loading mastery" />
+                <Spinner size="sm" color="secondary" label={t('study.loadingMastery')} />
               ) : weakMastery.length ? (
                 weakMastery.map((row) => (
                   <div key={`${row.subject}-${row.topic}`} className="rounded-md p-2" style={{ border: '1px solid var(--border-subtle)' }}>
@@ -848,13 +875,13 @@ export function StudyPlanPage() {
                       {row.topic}
                     </p>
                     <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                      {row.subject} • mastery {row.mastery_score.toFixed(1)} • confidence {row.confidence.toFixed(1)} • {row.state_label}
+                      {subjectLabel(row.subject)} • {t('study.mastery')} {row.mastery_score.toFixed(1)} • {t('study.confidence')} {row.confidence.toFixed(1)} • {row.state_label}
                     </p>
                   </div>
                 ))
               ) : (
                 <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  No mastery rows yet. Complete recalls and quizzes to populate this.
+                  {t('study.noMastery')}
                 </p>
               )}
             </CardBody>
@@ -863,33 +890,33 @@ export function StudyPlanPage() {
           <Card className="glass">
             <CardHeader className="pb-2">
               <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
-                Active Recommendations
+                {t('study.activeRecommendations')}
               </h2>
             </CardHeader>
             <CardBody className="space-y-2">
               {isLiveLoading ? (
-                <Spinner size="sm" color="secondary" label="Loading recommendations" />
+                <Spinner size="sm" color="secondary" label={t('study.loadingRecommendations')} />
               ) : recommendations.length ? (
                 recommendations.map((rec) => (
                   <div key={rec.id} className="rounded-md p-2" style={{ border: '1px solid var(--border-subtle)' }}>
                     <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {rec.title}
+                      {localizeRecommendationTitle(language, rec.title)}
                     </p>
                     <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                      {rec.reason}
+                      {localizeRecommendationReason(language, rec.reason)}
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5 mt-2">
                       <Chip size="sm" variant="flat" color="secondary">
-                        {rec.rec_type}
+                        {localizeRecommendationType(language, rec.rec_type)}
                       </Chip>
                       {rec.subject ? (
                         <Chip size="sm" variant="flat">
-                          {rec.subject}
+                          {subjectLabel(rec.subject)}
                         </Chip>
                       ) : null}
                       {rec.topic ? (
                         <Chip size="sm" variant="flat">
-                          {rec.topic}
+                          {localizeTopicLabel(language, rec.topic)}
                         </Chip>
                       ) : null}
                     </div>
@@ -902,7 +929,7 @@ export function StudyPlanPage() {
                         isLoading={updatingRecommendationId === rec.id}
                         onPress={() => void handleRecommendationUpdate(rec.id, 'accepted')}
                       >
-                        Accept
+                        {t('study.accept')}
                       </Button>
                       <Button
                         size="sm"
@@ -912,7 +939,7 @@ export function StudyPlanPage() {
                         isLoading={updatingRecommendationId === rec.id}
                         onPress={() => void handleRecommendationUpdate(rec.id, 'dismissed')}
                       >
-                        Dismiss
+                        {t('study.dismiss')}
                       </Button>
                       <Button
                         size="sm"
@@ -922,20 +949,20 @@ export function StudyPlanPage() {
                         isLoading={updatingRecommendationId === rec.id}
                         onPress={() => void handleRecommendationDelete(rec.id)}
                       >
-                        Delete
+                        {t('study.delete')}
                       </Button>
                     </div>
                   </div>
                 ))
               ) : (
                 <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  No active recommendations right now. Generate a plan to refresh suggestions.
+                  {t('study.noRecommendations')}
                 </p>
               )}
               <div className="rounded-md p-2 flex items-start gap-2" style={{ background: 'var(--accent-glow)', border: '1px solid var(--accent-border)' }}>
                 <Sparkles className="w-4 h-4 mt-0.5" style={{ color: 'var(--accent)' }} />
                 <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                  Recommendations are personalized from your planner, weak topics, and recent learning signals.
+                  {t('study.recommendationNote')}
                 </p>
               </div>
             </CardBody>
@@ -945,19 +972,19 @@ export function StudyPlanPage() {
             <CardHeader className="pb-2">
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-blue-400" />
-                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>Suggested Daily Routine</h2>
+                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{t('study.suggestedRoutine')}</h2>
               </div>
             </CardHeader>
             <CardBody>
               <div className="space-y-2">
                 {[
-                  { time: '6:00 – 8:00 AM', activity: 'Physics — Theory + NCERT reading', subject: 'physics' },
-                  { time: '8:30 – 10:30 AM', activity: 'Chemistry — NCERT + practice MCQs', subject: 'chemistry' },
-                  { time: '11:00 – 1:00 PM', activity: 'Biology — NCERT + diagrams', subject: 'biology' },
-                  { time: '2:00 – 3:00 PM', activity: 'Revision — weak topics', subject: 'all' },
-                  { time: '3:30 – 5:00 PM', activity: 'Practice quizzes on APXMIND', subject: 'all' },
-                  { time: '5:30 – 7:00 PM', activity: 'PYQ solving + analysis', subject: 'all' },
-                  { time: '8:00 – 9:00 PM', activity: 'Quick revision before sleep', subject: 'all' },
+                  { time: '6:00 – 8:00 AM', activity: t('study.routine.slot1') },
+                  { time: '8:30 – 10:30 AM', activity: t('study.routine.slot2') },
+                  { time: '11:00 – 1:00 PM', activity: t('study.routine.slot3') },
+                  { time: '2:00 – 3:00 PM', activity: t('study.routine.slot4') },
+                  { time: '3:30 – 5:00 PM', activity: t('study.routine.slot5') },
+                  { time: '5:30 – 7:00 PM', activity: t('study.routine.slot6') },
+                  { time: '8:00 – 9:00 PM', activity: t('study.routine.slot7') },
                 ].map((slot, i) => (
                   <div key={i} className="flex items-start gap-4" style={{ padding: '12px 0', borderBottom: i === 6 ? 'none' : '1px solid var(--border-subtle)' }}>
                     <span className="w-32 shrink-0" style={{ minWidth: 100, fontSize: 11, color: 'var(--text-faint)' }}>{slot.time}</span>

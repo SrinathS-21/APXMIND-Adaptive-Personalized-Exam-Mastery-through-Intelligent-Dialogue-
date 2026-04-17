@@ -10,6 +10,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ...core.dependencies import get_llm, get_vectorstore
+from ...core.language import language_name, normalize_language
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +55,12 @@ async def websocket_chat(websocket: WebSocket):
                 native_llama_client = llm.client
                 runner = AgenticToolRunner(native_llama_client)
                 
-                lang = data.get("language", "English")
+                selected_language_name = language_name(normalize_language(data.get("language")))
                 
                 system_prompt = (
                     f"You are a NEET Medical tutor. You MUST use your search tools if the user asks a factual "
                     f"science question about Biology, Chemistry, or Physics. DO NOT guess the curriculum facts. "
-                    f"Explain the answer in {lang}. Do NOT mention 'NEET aspirant'."
+                    f"Explain the answer in {selected_language_name}. Do NOT mention 'NEET aspirant'."
                 )
 
                 # Execute the dynamic Tool-Calling Stream

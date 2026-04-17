@@ -8,17 +8,19 @@ path-traversal protection.
 Also provides a textbook-context tutor endpoint for the book reader.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from enum import Enum
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ...core.dependencies import get_llm
+from ...core.language import language_name, resolve_request_language
 
 try:
     from langchain_core.prompts import ChatPromptTemplate
@@ -34,6 +36,8 @@ router = APIRouter()
 # Resolve once at import time
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]  # src/APXMIND/server/routes → project root
 _BOOKS_DIR = _PROJECT_ROOT / "data" / "raw" / "NCRTBooks"
+_TUTOR_TIMEOUT_SECONDS = 90
+_TUTOR_CONTEXT_CHAR_LIMIT = 10000
 
 
 class TutorTaskMode(str, Enum):
@@ -55,6 +59,7 @@ class TutorChatTurn(BaseModel):
 class TextbookTutorRequest(BaseModel):
     context: str = Field(..., min_length=1, max_length=15000)
     task: TutorTaskMode
+    language: Optional[str] = Field(default=None, max_length=16)
     page_number: Optional[int] = Field(default=None, ge=1, le=5000)
     chat_history: List[TutorChatTurn] = Field(default_factory=list)
     user_query: str = Field(default="", max_length=2000)
@@ -134,13 +139,18 @@ def _task_mode_guide(task: TutorTaskMode) -> str:
     response_model=TextbookTutorResponse,
     summary="Context-grounded AI tutor for textbook reader",
 )
-async def textbook_tutor(request: TextbookTutorRequest):
+async def textbook_tutor(request: TextbookTutorRequest, http_request: Request):
     context = request.context.strip()
     if len(context) < 20:
         raise HTTPException(
             status_code=400,
             detail="Please provide more textbook context (at least ~20 characters).",
         )
+
+    context_was_truncated = False
+    if len(context) > _TUTOR_CONTEXT_CHAR_LIMIT:
+        context = context[:_TUTOR_CONTEXT_CHAR_LIMIT].rstrip()
+        context_was_truncated = True
 
     if ChatPromptTemplate is None or StrOutputParser is None:
         raise HTTPException(
@@ -163,6 +173,11 @@ async def textbook_tutor(request: TextbookTutorRequest):
     user_query = request.user_query.strip() or "(No explicit user question provided)"
     source_type = (request.source_type or "selected_text").strip().lower()
     page_hint = str(request.page_number) if request.page_number else "not provided"
+    selected_language = resolve_request_language(
+        explicit=request.language,
+        header=http_request.headers.get("X-APXMIND-Language"),
+    )
+    selected_language_name = language_name(selected_language)
 
     system_prompt = """You are an advanced AI Tutor embedded inside an interactive textbook reader application.
 
@@ -175,6 +190,7 @@ CORE RULES:
 4. External information is allowed only when clearly labeled: "Additional Explanation (beyond provided text)".
 5. Be student-friendly: clear headings, short paragraphs, bullet points, teaching style.
 6. For OCR-derived text, interpret cautiously and avoid overconfidence.
+7. The final response must be written in {language_name}.
 
 OUTPUT STYLE:
 - Use headings and bullets where useful.
@@ -207,24 +223,36 @@ Respond now according to the task mode and rules.
             ("human", human_prompt),
         ])
         chain = prompt | llm | StrOutputParser()
-        answer = chain.invoke(
-            {
-                "task": request.task.value,
-                "task_guide": _task_mode_guide(request.task),
-                "page_number": page_hint,
-                "source_type": source_type,
-                "user_query": user_query,
-                "chat_history": history_text,
-                "context": context,
-            }
-        ).strip()
+        payload = {
+            "task": request.task.value,
+            "task_guide": _task_mode_guide(request.task),
+            "language_name": selected_language_name,
+            "page_number": page_hint,
+            "source_type": source_type,
+            "user_query": user_query,
+            "chat_history": history_text,
+            "context": context,
+        }
+        answer = await asyncio.wait_for(
+            asyncio.to_thread(chain.invoke, payload),
+            timeout=_TUTOR_TIMEOUT_SECONDS,
+        )
+        answer = answer.strip()
 
         if not answer:
             answer = "The provided text does not contain enough information to generate a reliable response. Could you share a little more context from the textbook?"
 
-        caution = None
+        caution_parts: list[str] = []
         if source_type == "ocr":
-            caution = "OCR text may contain recognition errors. The explanation was generated cautiously from the provided extract."
+            caution_parts.append(
+                "OCR text may contain recognition errors. The explanation was generated cautiously from the provided extract."
+            )
+        if context_was_truncated:
+            caution_parts.append(
+                "The selected context was truncated to improve response speed."
+            )
+
+        caution = " ".join(caution_parts) if caution_parts else None
 
         return TextbookTutorResponse(
             success=True,
@@ -233,6 +261,14 @@ Respond now according to the task mode and rules.
             topic=_extract_topic(context),
             caution=caution,
             timestamp=datetime.utcnow().isoformat(),
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "Tutor request timed out while generating a response. "
+                "Try selecting a smaller text block or ask a narrower question."
+            ),
         )
     except HTTPException:
         raise

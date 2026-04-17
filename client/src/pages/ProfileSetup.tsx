@@ -24,6 +24,7 @@ import {
   Dna,
 } from 'lucide-react';
 import apiClient from '../lib/api';
+import { LANGUAGE_OPTIONS, normalizeLanguage } from '../lib/language';
 import { normalizeApiUserProfile, useProfileStore } from '../store/profileStore';
 
 const STEPS = ['Personal Info', 'Academic Details', 'NEET Goals', 'Study Preferences'];
@@ -68,7 +69,7 @@ export function ProfileSetup() {
   const [strongSubjects, setStrongSubjects] = useState<Set<string>>(new Set());
   const [weakSubjects, setWeakSubjects] = useState<Set<string>>(new Set());
   const [dailyStudyTarget, setDailyStudyTarget] = useState(4);
-  const [preferredLanguage, setPreferredLanguage] = useState<string>('english');
+  const [preferredLanguage, setPreferredLanguage] = useState<string>('en');
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -142,7 +143,7 @@ export function ProfileSetup() {
       strong_subjects: Array.from(strongSubjects),
       weak_subjects: Array.from(weakSubjects),
       daily_study_target: dailyStudyTarget,
-      preferred_language: preferredLanguage,
+      preferred_language: normalizeLanguage(preferredLanguage),
     };
 
     try {
@@ -529,8 +530,9 @@ export function ProfileSetup() {
                         value: 'text-text-primary',
                       }}
                     >
-                      <SelectItem key="english" textValue="English">🇬🇧 English</SelectItem>
-                      <SelectItem key="hindi" textValue="Hindi">🇮🇳 Hindi</SelectItem>
+                      {LANGUAGE_OPTIONS.map((option) => (
+                        <SelectItem key={option.code} textValue={option.label}>{option.label}</SelectItem>
+                      ))}
                     </Select>
                   </>
                 )}

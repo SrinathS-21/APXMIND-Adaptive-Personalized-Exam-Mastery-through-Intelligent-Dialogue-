@@ -1,0 +1,17 @@
+[
+  {
+    "page": 1,
+    "chunk_index": 1,
+    "text": "ANEETA - Agents for National Eligibility Entrance Test Assistance\nANEETA (Agents for National Eligibility Entrance Test Assistance) is a comprehensive multi-agent\nsystem tailored to support NEET-UG aspirants in their preparation journey. Developed with a vision\nto empower underprivileged and underserved students, ANEETA delivers high-quality, accessible,\nand multilingual NEET training, all while running entirely offline on local hardware.\nSystem Overview:\nANEETA leverages local LLMs (Gemma 3n via Ollama) and is designed as part of the Kaggle x\nGoogle - The Gemma 3n Impact Challenge by Jim Harrington and Jabin Joshua.\nThe system comprises the following intelligent agents:\n- Mentor Agent: Provides general guidance to candidates, including creating awareness about the\nexam, helping identify high-priority topics, and offering preparation strategies.\n- Teacher Agent: Answers subject-specific questions in Biology, Physics, and Chemistry using the\nofficial NCERT textbooks as its primary reference source, ensuring curriculum alignment.\n- Doubt Solver Agent: Specializes in solving MCQs from past NEET papers. It offers detailed\nexplanations to help students understand the logic behind each a"
+  },
+  {
+    "page": 1,
+    "chunk_index": 2,
+    "text": "g curriculum alignment.\n- Doubt Solver Agent: Specializes in solving MCQs from past NEET papers. It offers detailed\nexplanations to help students understand the logic behind each answer.\n- Trainer Agent: Utilizes a curated three-year solved NEET question bank to craft custom quizzes\nbased on user-selected topics. It explains solutions thoroughly and adapts responses to support\ndeep understanding.\nMultilingual Support:\nAll responses are available in English and translated into major regional languages:\n- Tamil\n- Hindi\n- Bengali\n- Telugu"
+  },
+  {
+    "page": 2,
+    "chunk_index": 1,
+    "text": "ANEETA - Agents for National Eligibility Entrance Test Assistance\n- Marathi\nKey Highlights:\n- Fully local deployment: No internet required\n- Powered by Gemma 3n via Ollama\n- Designed for equity and inclusion in education\n- Focused on NEET UG, India's premier medical entrance exam\nLearn more or contribute:\nhttps://github.com/jimdatapro/ANEETA"
+  }
+]

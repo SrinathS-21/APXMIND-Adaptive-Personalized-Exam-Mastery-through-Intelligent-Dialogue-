@@ -1,5 +1,7 @@
 import apiClient, { getApiErrorMessage } from './api';
 
+const BOOK_TUTOR_TIMEOUT_MS = 120000;
+
 export type TutorTaskMode =
   | 'summary'
   | 'detailed_explain'
@@ -17,6 +19,7 @@ export interface TutorChatTurn {
 export interface BookTutorRequest {
   context: string;
   task: TutorTaskMode;
+  language?: string;
   page_number?: number;
   chat_history?: TutorChatTurn[];
   user_query?: string;
@@ -34,9 +37,16 @@ export interface BookTutorResponse {
 
 export async function askBookTutor(payload: BookTutorRequest): Promise<BookTutorResponse> {
   try {
-    const response = await apiClient.post<BookTutorResponse>('/api/books/tutor', payload);
+    const response = await apiClient.post<BookTutorResponse>('/api/books/tutor', payload, {
+      timeout: BOOK_TUTOR_TIMEOUT_MS,
+    });
     return response.data;
   } catch (error: unknown) {
-    throw new Error(getApiErrorMessage(error, 'Unable to get tutor response right now.'));
+    throw new Error(
+      getApiErrorMessage(
+        error,
+        'Tutor response is taking longer than expected. Please try again with a smaller text selection.'
+      )
+    );
   }
 }
