@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Navbar,
@@ -17,6 +18,7 @@ import {
   Library,
   Trophy,
   CalendarDays,
+  ChevronDown,
   Globe,
   User,
   Bell,
@@ -26,29 +28,41 @@ import {
   Flame,
   Zap,
   LogOut,
+  NotebookPen,
 } from 'lucide-react';
 import { useProfileStore } from '../store/profileStore';
+import { normalizeApiUserProfile } from '../store/profileStore';
 import { useGamificationStore } from '../store/gamificationStore';
+import apiClient from '../lib/api';
+import {
+  LANGUAGE_OPTIONS,
+  normalizeLanguage,
+  readLanguageFromPersistedProfile,
+  writeLanguageToPersistedProfile,
+} from '../lib/language';
+import { tUi } from '../lib/uiI18n';
 import { ThemeToggle } from './ThemeToggle';
 import { SyncStatusPill } from './SyncStatusPill';
 
 interface NavItem {
   path: string;
+  labelKey: string;
   label: string;
   icon: React.ReactNode;
 }
 
-const baseNavItems: NavItem[] = [
-  { path: '/home', label: 'Home', icon: <LayoutDashboard className="w-5 h-5" /> },
-  { path: '/books', label: 'NCERT Books', icon: <BookOpen className="w-5 h-5" /> },
-  { path: '/achievements', label: 'Achievements', icon: <Trophy className="w-5 h-5" /> },
-  { path: '/study-plan', label: 'Study Plan', icon: <CalendarDays className="w-5 h-5" /> },
-  { path: '/learn-sessions', label: 'Learn Sessions', icon: <History className="w-5 h-5" /> },
-  { path: '/resources', label: 'Resources', icon: <Globe className="w-5 h-5" /> },
-  { path: '/library', label: 'Library', icon: <Library className="w-5 h-5" /> },
-  { path: '/notifications', label: 'Notifications', icon: <Bell className="w-5 h-5" /> },
-  { path: '/support', label: 'Support', icon: <LifeBuoy className="w-5 h-5" /> },
-  { path: '/profile', label: 'Profile', icon: <User className="w-5 h-5" /> },
+const baseNavItems: Omit<NavItem, 'label'>[] = [
+  { path: '/home', labelKey: 'nav.home', icon: <LayoutDashboard className="w-5 h-5" /> },
+  { path: '/books', labelKey: 'nav.ncertBooks', icon: <BookOpen className="w-5 h-5" /> },
+  { path: '/achievements', labelKey: 'nav.achievements', icon: <Trophy className="w-5 h-5" /> },
+  { path: '/study-plan', labelKey: 'nav.studyPlan', icon: <CalendarDays className="w-5 h-5" /> },
+  { path: '/learn-sessions', labelKey: 'nav.learnSessions', icon: <History className="w-5 h-5" /> },
+  { path: '/notebook-studio', labelKey: 'nav.notebookStudio', icon: <NotebookPen className="w-5 h-5" /> },
+  { path: '/resources', labelKey: 'nav.resources', icon: <Globe className="w-5 h-5" /> },
+  { path: '/library', labelKey: 'nav.library', icon: <Library className="w-5 h-5" /> },
+  { path: '/notifications', labelKey: 'nav.notifications', icon: <Bell className="w-5 h-5" /> },
+  { path: '/support', labelKey: 'nav.support', icon: <LifeBuoy className="w-5 h-5" /> },
+  { path: '/profile', labelKey: 'nav.profile', icon: <User className="w-5 h-5" /> },
 ];
 
 export function AppShell() {
@@ -56,10 +70,46 @@ export function AppShell() {
   const navigate = useNavigate();
   const isHomeRoute = location.pathname === '/home' || location.pathname.startsWith('/home/');
   const profile = useProfileStore((s) => s.profile);
+  const setProfile = useProfileStore((s) => s.setProfile);
+  const updateProfile = useProfileStore((s) => s.updateProfile);
   const setAuthenticated = useProfileStore((s) => s.setAuthenticated);
   const { currentLevel, totalXP, currentStreak } = useGamificationStore();
-  const navItems = baseNavItems;
-  const roleLabel = 'Student';
+  const [selectedLanguage, setSelectedLanguage] = useState(() =>
+    normalizeLanguage(profile?.preferredLanguage ?? readLanguageFromPersistedProfile())
+  );
+  const roleLabel = tUi(selectedLanguage, 'app.student');
+  const navItems = useMemo<NavItem[]>(
+    () => baseNavItems.map((item) => ({ ...item, label: tUi(selectedLanguage, item.labelKey) })),
+    [selectedLanguage]
+  );
+
+  useEffect(() => {
+    setSelectedLanguage(
+      normalizeLanguage(profile?.preferredLanguage ?? readLanguageFromPersistedProfile())
+    );
+  }, [profile?.preferredLanguage]);
+
+  const handleLanguageChange = async (value: string) => {
+    const nextLanguage = normalizeLanguage(value);
+    if (nextLanguage === selectedLanguage) {
+      return;
+    }
+
+    setSelectedLanguage(nextLanguage);
+    writeLanguageToPersistedProfile(nextLanguage);
+    updateProfile({ preferredLanguage: nextLanguage });
+
+    try {
+      const response = await apiClient.put('/api/auth/profile', { preferred_language: nextLanguage });
+      if (response?.data) {
+        setProfile(normalizeApiUserProfile(response.data));
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to sync preferred language with backend profile:', error);
+      }
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('APXMIND_token');
@@ -77,6 +127,62 @@ export function AppShell() {
   return (
     <div className="flex h-dvh bg-bg-0 relative overflow-hidden">
       <div className="fixed top-3 right-3 md:top-4 md:right-4 z-40 flex items-center gap-2">
+        <div
+          className="relative flex items-center rounded-full"
+          style={{
+            background: 'var(--bg-1)',
+            border: '1px solid var(--border-subtle)',
+            boxShadow: '0 6px 18px rgba(0, 0, 0, 0.12)',
+          }}
+        >
+          <Globe
+            className="w-3.5 h-3.5"
+            style={{
+              position: 'absolute',
+              left: 10,
+              color: 'var(--text-muted)',
+              pointerEvents: 'none',
+            }}
+          />
+          <select
+            aria-label={tUi(selectedLanguage, 'app.selectLanguage')}
+            value={selectedLanguage}
+            onChange={(event) => {
+              void handleLanguageChange(event.target.value);
+            }}
+            style={{
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              border: 'none',
+              outline: 'none',
+              fontSize: 12,
+              fontWeight: 600,
+              letterSpacing: '0.01em',
+              lineHeight: 1,
+              padding: '9px 30px 9px 30px',
+              borderRadius: 999,
+              cursor: 'pointer',
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
+            }}
+          >
+            {LANGUAGE_OPTIONS.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            className="w-3.5 h-3.5"
+            style={{
+              position: 'absolute',
+              right: 10,
+              color: 'var(--text-faint)',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
         <SyncStatusPill />
         <ThemeToggle />
       </div>
@@ -133,8 +239,8 @@ export function AppShell() {
               />
             </Badge>
             <div className="flex-1 min-w-0">
-              <p className="truncate" style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{profile?.name || 'Student'}</p>
-              <p style={{ fontSize: 10, color: 'var(--text-faint)' }}>Level {currentLevel}</p>
+              <p className="truncate" style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{profile?.name || roleLabel}</p>
+              <p style={{ fontSize: 10, color: 'var(--text-faint)' }}>{tUi(selectedLanguage, 'app.level', { level: currentLevel })}</p>
               <Chip
                 size="sm"
                 variant="flat"
@@ -251,7 +357,7 @@ export function AppShell() {
             onPress={handleLogout}
             style={{ color: 'var(--text-muted)' }}
           >
-            Logout
+            {tUi(selectedLanguage, 'app.logout')}
           </Button>
         </div>
       </aside>
@@ -315,14 +421,14 @@ export function AppShell() {
               </Chip>
             </NavbarItem>
             <NavbarItem>
-              <Tooltip content="Logout">
-                <Button isIconOnly aria-label="Logout" variant="light" size="sm" onPress={handleLogout}>
+              <Tooltip content={tUi(selectedLanguage, 'app.logout')}>
+                <Button isIconOnly aria-label={tUi(selectedLanguage, 'app.logout')} variant="light" size="sm" onPress={handleLogout}>
                   <LogOut className="w-4 h-4" />
                 </Button>
               </Tooltip>
             </NavbarItem>
             <NavbarItem>
-              <Tooltip content={`Role: ${roleLabel}`}>
+              <Tooltip content={tUi(selectedLanguage, 'app.roleTooltip', { role: roleLabel })}>
                 <NavLink to="/profile">
                   <Avatar
                     name={initials}

@@ -9,6 +9,8 @@ import {
 } from '@heroui/react';
 import { motion } from 'framer-motion';
 import { BookOpen, Atom, FlaskConical, Dna, ExternalLink } from 'lucide-react';
+import { useProfileStore } from '../store/profileStore';
+import { tUi } from '../lib/uiI18n';
 
 interface BookChapter {
   title: string;
@@ -146,10 +148,10 @@ const bookCatalog: BookEntry[] = [
   },
 ];
 
-const subjectMeta: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
-  physics: { icon: <Atom className="w-5 h-5" />, color: 'text-blue-500', label: 'Physics' },
-  chemistry: { icon: <FlaskConical className="w-5 h-5" />, color: 'text-emerald-500', label: 'Chemistry' },
-  biology: { icon: <Dna className="w-5 h-5" />, color: 'text-purple-500', label: 'Biology' },
+const subjectMeta: Record<string, { icon: React.ReactNode; color: string }> = {
+  physics: { icon: <Atom className="w-5 h-5" />, color: 'text-blue-500' },
+  chemistry: { icon: <FlaskConical className="w-5 h-5" />, color: 'text-emerald-500' },
+  biology: { icon: <Dna className="w-5 h-5" />, color: 'text-purple-500' },
 };
 
 const selectedSubjectChipStyle = {
@@ -177,6 +179,8 @@ const item = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0 } };
 export function BooksPage() {
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
   const navigate = useNavigate();
+  const language = useProfileStore((s) => s.profile?.preferredLanguage);
+  const t = (key: string, vars?: Record<string, string | number>) => tUi(language, key, vars);
 
   const subjects = ['physics', 'chemistry', 'biology'];
 
@@ -196,10 +200,10 @@ export function BooksPage() {
       <motion.div variants={item}>
         <h1 className="ui-page-title">
           <BookOpen className="w-6 h-6 text-success" />
-          NCERT Books
+          {t('books.title')}
         </h1>
         <p className="ui-page-subtitle">
-          Read NCERT textbooks directly — the foundation of NEET preparation
+          {t('books.subtitle')}
         </p>
       </motion.div>
 
@@ -212,7 +216,7 @@ export function BooksPage() {
           style={selectedSubject === null ? selectedSubjectChipStyle : defaultSubjectChipStyle}
           onClick={() => setSelectedSubject(null)}
         >
-          All Subjects
+          {t('books.allSubjects')}
         </Chip>
         {subjects.map((s) => (
           <Chip
@@ -223,7 +227,7 @@ export function BooksPage() {
             style={selectedSubject === s ? selectedSubjectChipStyle : defaultSubjectChipStyle}
             onClick={() => setSelectedSubject(s === selectedSubject ? null : s)}
           >
-            {subjectMeta[s].label}
+            {t(`home.subject.${s}.label`)}
           </Chip>
         ))}
       </motion.div>
@@ -233,6 +237,7 @@ export function BooksPage() {
         <Accordion variant="bordered" selectionMode="multiple">
           {filteredCatalog.map((book, idx) => {
             const meta = subjectMeta[book.subject];
+            const subjectLabel = t(`home.subject.${book.subject}.label`);
             return (
               <AccordionItem
                 key={`${book.subject}-${book.classLevel}-${idx}`}
@@ -240,9 +245,9 @@ export function BooksPage() {
                   <div className="flex items-center gap-2">
                     <span className={meta.color}>{meta.icon}</span>
                     <span className="font-semibold">
-                      Class {book.classLevel} — {meta.label}
+                      {t('books.classSubject', { classLevel: book.classLevel, subject: subjectLabel })}
                     </span>
-                    <Chip size="sm" variant="flat" className="ui-pill ui-chip-neutral">{book.chapters.length} chapters</Chip>
+                    <Chip size="sm" variant="flat" className="ui-pill ui-chip-neutral">{t('books.chapterCount', { count: book.chapters.length })}</Chip>
                   </div>
                 }
               >

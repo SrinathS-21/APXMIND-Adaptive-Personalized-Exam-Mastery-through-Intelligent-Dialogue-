@@ -42,8 +42,11 @@ import {
   submitQuizAnswer,
   type QuizSummary,
 } from '../lib/quizService';
+import { getSubjectLessons, type Lesson } from '../lib/subjectService';
 import { getApiErrorMessage } from '../lib/api';
 import { useGamificationStore } from '../store/gamificationStore';
+import { useProfileStore } from '../store/profileStore';
+import { normalizeLanguage } from '../lib/language';
 
 type Phase = 'setup' | 'playing' | 'review' | 'results' | 'history';
 const HISTORY_PAGE_SIZE = 8;
@@ -79,10 +82,33 @@ function buildExplanation(params: {
   return 'Incorrect. Review the concept and compare each option carefully.';
 }
 
+function deriveChapterTopic(lesson: Lesson | null): string | undefined {
+  if (!lesson) {
+    return undefined;
+  }
+
+  const cleanedTitle = lesson.title
+    .replace(/^\s*(chapter|lesson)\s*\d+\s*[:.-]?\s*/i, '')
+    .replace(/^\s*unit\s*\d+\s*[:.-]?\s*/i, '')
+    .trim();
+
+  if (cleanedTitle.length >= 3) {
+    return cleanedTitle;
+  }
+
+  const firstTopic = (lesson.topics || [])
+    .map((topic) => topic.trim())
+    .find((topic) => topic.length >= 3);
+
+  return firstTopic || undefined;
+}
+
 export function QuizPage() {
-  const { subject } = useParams<{ subject: string; lessonId: string }>();
+  const { subject, lessonId } = useParams<{ subject: string; lessonId: string }>();
   const navigate = useNavigate();
   const { recordQuizComplete } = useGamificationStore();
+  const profile = useProfileStore((s) => s.profile);
+  const selectedLanguage = normalizeLanguage(profile?.preferredLanguage);
 
   const [phase, setPhase] = useState<Phase>('setup');
   const [difficulty, setDifficulty] = useState<QuizDifficulty>('medium');
@@ -114,6 +140,11 @@ export function QuizPage() {
   const [historyDetailLoading, setHistoryDetailLoading] = useState(false);
   const [historyQuestionLoading, setHistoryQuestionLoading] = useState(false);
   const [historyDeleteLoading, setHistoryDeleteLoading] = useState<string | null>(null);
+  const [chapters, setChapters] = useState<Lesson[]>([]);
+  const [chapterLoading, setChapterLoading] = useState(false);
+  const [chapterError, setChapterError] = useState<string | null>(null);
+  const [selectedChapterId, setSelectedChapterId] = useState<string>('all');
+  const [historyChapterId, setHistoryChapterId] = useState<string>('all');
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyStatus, setHistoryStatus] = useState<'all' | 'active' | 'completed' | 'abandoned'>('completed');
@@ -150,6 +181,10 @@ export function QuizPage() {
       normalizedSubject === 'physics' || normalizedSubject === 'chemistry' || normalizedSubject === 'biology'
         ? normalizedSubject
         : undefined;
+    const selectedHistoryChapter = historyChapterId === 'all'
+      ? null
+      : chapters.find((lesson) => String(lesson.id) === historyChapterId) || null;
+    const historyTopic = deriveChapterTopic(selectedHistoryChapter);
 
     setHistoryLoading(true);
     setHistoryError(null);
@@ -158,6 +193,7 @@ export function QuizPage() {
         subject: quizSubject,
         status: historyStatus === 'all' ? undefined : historyStatus,
         difficulty: historyDifficulty === 'all' ? undefined : historyDifficulty,
+        topic: historyTopic,
         limit: HISTORY_PAGE_SIZE,
         offset: historyOffset,
       });
@@ -182,7 +218,73 @@ export function QuizPage() {
 
   useEffect(() => {
     void loadQuizHistory();
-  }, [subject, historyStatus, historyDifficulty, historyOffset]);
+  }, [subject, historyStatus, historyDifficulty, historyOffset, historyChapterId, chapters]);
+
+  useEffect(() => {
+    const normalizedSubject = subject?.toLowerCase();
+    if (
+      normalizedSubject !== 'physics'
+      && normalizedSubject !== 'chemistry'
+      && normalizedSubject !== 'biology'
+    ) {
+      setChapters([]);
+      setSelectedChapterId('all');
+      setHistoryChapterId('all');
+      setChapterError(null);
+      return;
+    }
+
+    setChapterLoading(true);
+    setChapterError(null);
+
+    getSubjectLessons(normalizedSubject)
+      .then((res) => {
+        if (res.success && res.data) {
+          const orderedLessons = [...res.data].sort((a, b) => a.order - b.order);
+          setChapters(orderedLessons);
+          setSelectedChapterId((prev) => {
+            if (prev !== 'all' && orderedLessons.some((lesson) => String(lesson.id) === prev)) {
+              return prev;
+            }
+            return 'all';
+          });
+          setHistoryChapterId((prev) => {
+            if (prev !== 'all' && orderedLessons.some((lesson) => String(lesson.id) === prev)) {
+              return prev;
+            }
+            return 'all';
+          });
+          return;
+        }
+
+        setChapters([]);
+        setSelectedChapterId('all');
+        setHistoryChapterId('all');
+        setChapterError(res.error || 'Unable to load chapters for this subject.');
+      })
+      .catch((err) => {
+        setChapters([]);
+        setSelectedChapterId('all');
+        setHistoryChapterId('all');
+        setChapterError(getApiErrorMessage(err, 'Unable to load chapters for this subject.'));
+      })
+      .finally(() => {
+        setChapterLoading(false);
+      });
+  }, [subject]);
+
+  useEffect(() => {
+    const parsedLessonId = Number(lessonId);
+    if (!Number.isFinite(parsedLessonId) || !chapters.length) {
+      return;
+    }
+
+    if (chapters.some((lesson) => lesson.id === parsedLessonId)) {
+      setSelectedChapterId(String(parsedLessonId));
+      setHistoryChapterId(String(parsedLessonId));
+      setHistoryOffset(0);
+    }
+  }, [lessonId, chapters]);
 
   useEffect(() => {
     const activeQuestion = questions[currentQ];
@@ -200,8 +302,12 @@ export function QuizPage() {
         normalizedSubject === 'physics' || normalizedSubject === 'chemistry' || normalizedSubject === 'biology'
           ? normalizedSubject
           : 'biology';
+      const selectedChapter = selectedChapterId === 'all'
+        ? null
+        : chapters.find((lesson) => String(lesson.id) === selectedChapterId) || null;
+      const chapterTopic = deriveChapterTopic(selectedChapter);
 
-      const res = await startQuizAttempt(quizSubject, difficulty, questionCount);
+      const res = await startQuizAttempt(quizSubject, difficulty, questionCount, chapterTopic, selectedLanguage);
       setQuizId(res.quiz.id);
       setQuestions(res.questions || []);
       setCurrentQ(0);
@@ -303,8 +409,8 @@ export function QuizPage() {
 
     try {
       const res = hasExistingAnswer
-        ? await updateQuizAnswer(quizId, question.id, selectedAnswer, 3)
-        : await submitQuizAnswer(quizId, question.id, selectedAnswer, 3);
+        ? await updateQuizAnswer(quizId, question.id, selectedAnswer, 3, selectedLanguage)
+        : await submitQuizAnswer(quizId, question.id, selectedAnswer, 3, selectedLanguage);
 
       const result = {
         question,
@@ -457,6 +563,44 @@ export function QuizPage() {
                   </div>
                 </div>
 
+                <div>
+                  <label htmlFor="quiz-chapter-select" className="text-sm font-medium text-text-secondary mb-2 block">
+                    Chapter
+                  </label>
+                  <select
+                    id="quiz-chapter-select"
+                    className="w-full rounded-lg border border-border-default bg-bg-2 px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-secondary"
+                    value={selectedChapterId}
+                    onChange={(event) => setSelectedChapterId(event.target.value)}
+                    disabled={chapterLoading || !chapters.length}
+                  >
+                    <option value="all">All Chapters</option>
+                    {chapters.map((lesson) => (
+                      <option key={lesson.id} value={String(lesson.id)}>
+                        {`Chapter ${lesson.order}: ${lesson.title}`}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    {chapterLoading ? (
+                      <Chip size="sm" variant="flat">Loading chapters...</Chip>
+                    ) : null}
+                    {!chapterLoading && chapters.length ? (
+                      <Chip size="sm" variant="flat" color="secondary">
+                        {selectedChapterId === 'all'
+                          ? `All ${chapters.length} chapters`
+                          : chapters.find((lesson) => String(lesson.id) === selectedChapterId)?.title || 'Selected chapter'}
+                      </Chip>
+                    ) : null}
+                    {chapterError ? (
+                      <Chip size="sm" variant="flat" color="danger">
+                        {chapterError}
+                      </Chip>
+                    ) : null}
+                  </div>
+                </div>
+
                 <Divider />
 
                 <div className="space-y-2">
@@ -517,6 +661,27 @@ export function QuizPage() {
                     </div>
                   </div>
 
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-text-muted">Chapter</p>
+                    <select
+                      id="quiz-history-chapter-select"
+                      className="w-full rounded-lg border border-border-default bg-bg-2 px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-secondary"
+                      value={historyChapterId}
+                      onChange={(event) => {
+                        setHistoryChapterId(event.target.value);
+                        setHistoryOffset(0);
+                      }}
+                      disabled={chapterLoading || !chapters.length}
+                    >
+                      <option value="all">All Chapters</option>
+                      {chapters.map((lesson) => (
+                        <option key={`history-${lesson.id}`} value={String(lesson.id)}>
+                          {`Chapter ${lesson.order}: ${lesson.title}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   {historyError ? (
                     <Chip color="danger" variant="flat" size="sm" className="w-full justify-center">
                       {historyError}
@@ -535,6 +700,9 @@ export function QuizPage() {
                               <div className="flex items-center justify-between gap-2">
                                 <div>
                                   <p className="text-sm font-medium capitalize">{quiz.subject} • {quiz.difficulty}</p>
+                                  {quiz.topic ? (
+                                    <p className="text-xs text-text-muted">Topic: {quiz.topic}</p>
+                                  ) : null}
                                   <p className="text-xs text-text-muted">
                                     {new Date(quiz.started_at).toLocaleString()} • {quiz.question_count} questions
                                   </p>

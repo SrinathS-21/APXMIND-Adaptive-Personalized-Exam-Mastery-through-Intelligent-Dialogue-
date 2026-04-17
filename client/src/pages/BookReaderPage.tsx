@@ -32,6 +32,8 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 
 import { askBookTutor, type TutorTaskMode, type TutorChatTurn } from '../lib/bookTutorService';
+import { normalizeLanguage } from '../lib/language';
+import { useProfileStore } from '../store/profileStore';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
 
@@ -160,6 +162,8 @@ function buildContextText(snippets: ContextSnippet[]): string {
 export function BookReaderPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const profile = useProfileStore((s) => s.profile);
+  const selectedLanguage = normalizeLanguage(profile?.preferredLanguage);
   const file = params.get('file') || '';
   const pdfFileUrl = `/api/books/${file}`;
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -512,6 +516,7 @@ export function BookReaderPage() {
       const response = await askBookTutor({
         context: contextText,
         task: effectiveTask,
+        language: selectedLanguage,
         page_number: effectivePageNumber,
         chat_history: historyPayload,
         user_query: effectiveUserQuery,

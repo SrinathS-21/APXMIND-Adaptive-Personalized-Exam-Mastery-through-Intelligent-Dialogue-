@@ -9,10 +9,11 @@ import time
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from ...api.schemas import QueryRequest, QueryResponse, QueryMetadata, ErrorResponse
 from ...core.dependencies import get_llm, get_vectorstore
+from ...core.language import resolve_request_language
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ router = APIRouter()
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Process user query through intelligence layer",
 )
-async def process_query(request: QueryRequest):
+async def process_query(request: QueryRequest, http_request: Request):
     """
     Process a user query through the 3-tier intelligence system.
 
@@ -38,8 +39,16 @@ async def process_query(request: QueryRequest):
     try:
         query = request.query.strip()
         subject = request.subject.value if request.subject else ""
+        selected_language = resolve_request_language(
+            explicit=request.language,
+            context=request.context,
+            header=http_request.headers.get("X-APXMIND-Language"),
+        )
 
-        logger.info(f"Processing query: {query[:100]}... (subject: {subject or 'auto'})")
+        logger.info(
+            f"Processing query: {query[:100]}... "
+            f"(subject: {subject or 'auto'}, language: {selected_language})"
+        )
 
         # Import intelligence components (lazy to avoid circular deps)
         from ...api.agents import classify_intent, retriever_agent, orchestrator_agent
@@ -66,7 +75,11 @@ async def process_query(request: QueryRequest):
             )
 
             result = retriever_agent(
-                query=query, vectorstore=vectorstore, llm=llm, subject=detected_subject
+                query=query,
+                vectorstore=vectorstore,
+                llm=llm,
+                subject=detected_subject,
+                language=selected_language,
             )
             tier1_latency = (time.time() - tier1_start) * 1000
             total_latency = (time.time() - start_time) * 1000
@@ -97,7 +110,11 @@ async def process_query(request: QueryRequest):
             }
 
             result = orchestrator_agent(
-                query=query, vectorstores=vectorstores, llm=llm, subject=detected_subject
+                query=query,
+                vectorstores=vectorstores,
+                llm=llm,
+                subject=detected_subject,
+                language=selected_language,
             )
             tier2_latency = (time.time() - tier2_start) * 1000
             total_latency = (time.time() - start_time) * 1000

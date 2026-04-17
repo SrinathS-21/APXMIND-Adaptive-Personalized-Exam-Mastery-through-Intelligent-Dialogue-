@@ -13,32 +13,53 @@ import {
   Divider,
 } from '@heroui/react';
 import { motion } from 'framer-motion';
-import { Send, Bot, User, Sparkles, ArrowLeft, History, List, MoreHorizontal, Plus } from 'lucide-react';
+import { Send, Bot, User, Sparkles, ArrowLeft, History, List, MoreHorizontal, Plus, BookText, FileDown, ShieldCheck, Languages } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { processQuery } from '../lib/queryService';
 import {
+  convertLearnSessionToNotes,
   deleteLearnSession,
+  generateLearnChapterBrief,
+  generateLearnRevisionSheet,
   endLearnSession,
+  getLearnSessionSourceLock,
+  getLearnSessionSummary,
+  getLearnSessionMode,
+  getLessonMissionContext,
   getLearnMessages,
   getLearnSession,
   listLearnSessions,
   sendLearnMessage,
+  setLearnSessionSourceLock,
+  setLearnSessionMode,
+  submitLearnCheckpoint,
   startLearnSession,
+  type LearnMessageMetadata,
+  type LearnSourceCitation,
+  type LearnSessionSummary,
+  type LessonMissionContext,
   type LearnMessage,
   type LearnSession,
+  type TutorMode,
 } from '../lib/learnSessionService';
 import { submitLessonRecall } from '../lib/retrievalService';
 import { completeLesson } from '../lib/subjectService';
 import { getApiErrorMessage } from '../lib/api';
 import { useToast } from '../hooks/useToast';
 import { useGamificationStore } from '../store/gamificationStore';
+import { useProfileStore } from '../store/profileStore';
+import { normalizeLanguage } from '../lib/language';
+import { TutorModeSelector } from '../components/learn/TutorModeSelector';
+import { LessonMissionCard } from '../components/learn/LessonMissionCard';
+import { CheckpointPulseCard } from '../components/learn/CheckpointPulseCard';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   tier?: string;
+  msgMetadata?: LearnMessageMetadata | null;
   timestamp: Date;
 }
 
@@ -47,6 +68,57 @@ interface LearnLocationState {
 }
 
 const SESSION_TITLES_STORAGE_KEY = 'APXMIND_learn_session_titles_v1';
+
+const TUTOR_MODE_LABELS: Record<TutorMode, string> = {
+  guided: 'Guided Learn',
+  revision: 'Rapid Revision',
+  drill: 'Exam Drill',
+};
+
+const CHECKPOINT_INTERVAL_TURNS = 4;
+const SHOW_NOTEBOOK_FEATURES_IN_LEARN = false;
+
+type OutputLanguage = 'en' | 'ta';
+
+function parseOutputLanguage(value: string | null | undefined): OutputLanguage {
+  return value === 'ta' ? 'ta' : 'en';
+}
+
+function outputLanguageLabel(value: OutputLanguage): string {
+  return value === 'ta' ? 'Tamil' : 'English';
+}
+
+function extractCitations(metadata: LearnMessageMetadata | null | undefined): LearnSourceCitation[] {
+  if (!metadata || typeof metadata !== 'object') {
+    return [];
+  }
+
+  const raw = metadata.citations;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw.filter((item): item is LearnSourceCitation => {
+    return !!item && typeof item === 'object' && typeof item.source_id === 'string' && typeof item.title === 'string';
+  });
+}
+
+function parseTutorMode(value: unknown): TutorMode | null {
+  if (value === 'guided' || value === 'revision' || value === 'drill') {
+    return value;
+  }
+  return null;
+}
+
+function buildCheckpointPrompt(mode: TutorMode, conceptKey: string): string {
+  if (mode === 'revision') {
+    return `In 2-3 lines, summarize the highest-yield points for ${conceptKey} and one exam trap to avoid.`;
+  }
+  if (mode === 'drill') {
+    return `Answer this quick check for ${conceptKey}: what is the core rule and how would you apply it in a NEET-style question?`;
+  }
+  return `Teach back ${conceptKey} in your own words with one simple example.`;
+}
 
 function buildWelcomeMessage(subjectName?: string): Message {
   return {
@@ -92,6 +164,8 @@ export function LearnPage() {
   const location = useLocation();
   const { addToast } = useToast();
   const { recordStudySession, addXP, recordSubjectStudied } = useGamificationStore();
+  const profile = useProfileStore((s) => s.profile);
+  const selectedLanguage = normalizeLanguage(profile?.preferredLanguage);
   const parsedLessonId = lessonId ? Number(lessonId) : NaN;
   const numericLessonId = Number.isFinite(parsedLessonId) ? parsedLessonId : undefined;
 
@@ -116,6 +190,27 @@ export function LearnPage() {
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
   const [deletedSessionIds, setDeletedSessionIds] = useState<string[]>([]);
   const [creatingSession, setCreatingSession] = useState(false);
+  const [tutorMode, setTutorMode] = useState<TutorMode>('guided');
+  const [lessonContext, setLessonContext] = useState<LessonMissionContext | null>(null);
+  const [lessonContextLoading, setLessonContextLoading] = useState(false);
+  const [lessonContextError, setLessonContextError] = useState<string | null>(null);
+  const [checkpointPrompt, setCheckpointPrompt] = useState<string | null>(null);
+  const [checkpointConceptKey, setCheckpointConceptKey] = useState<string | null>(null);
+  const [checkpointResponse, setCheckpointResponse] = useState('');
+  const [checkpointConfidence, setCheckpointConfidence] = useState(60);
+  const [checkpointSubmitting, setCheckpointSubmitting] = useState(false);
+  const [lastCheckpointTurn, setLastCheckpointTurn] = useState(0);
+  const [latestCheckpointScore, setLatestCheckpointScore] = useState<number | null>(null);
+  const [latestCheckpointFeedback, setLatestCheckpointFeedback] = useState<string | null>(null);
+  const [sourceLocked, setSourceLocked] = useState(false);
+  const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>(parseOutputLanguage(selectedLanguage));
+  const [expandedCitationKey, setExpandedCitationKey] = useState<string | null>(null);
+  const [sessionSummary, setSessionSummary] = useState<LearnSessionSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [chapterBriefLoading, setChapterBriefLoading] = useState(false);
+  const [revisionSheetLoading, setRevisionSheetLoading] = useState(false);
+  const [notesConverting, setNotesConverting] = useState(false);
+  const [lastGeneratedArtifact, setLastGeneratedArtifact] = useState<string | null>(null);
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>(() => {
     if (typeof window === 'undefined') return {};
     try {
@@ -132,6 +227,46 @@ export function LearnPage() {
   const startTimeRef = useRef(Date.now());
   const routeState = location.state as LearnLocationState | null;
   const reopenSessionIdFromRoute = routeState?.reopenSessionId;
+
+  async function loadLessonContext(targetLessonId?: number) {
+    if (!targetLessonId || !Number.isFinite(targetLessonId)) {
+      setLessonContext(null);
+      setLessonContextError(null);
+      setLessonContextLoading(false);
+      return;
+    }
+
+    setLessonContextLoading(true);
+    setLessonContextError(null);
+    try {
+      const context = await getLessonMissionContext(targetLessonId);
+      setLessonContext(context);
+    } catch (error) {
+      setLessonContext(null);
+      setLessonContextError(getApiErrorMessage(error, 'Unable to load lesson mission.'));
+    } finally {
+      setLessonContextLoading(false);
+    }
+  }
+
+  async function refreshSessionSummary(targetSessionId?: string) {
+    const activeSessionId = targetSessionId ?? sessionId;
+    if (!activeSessionId) {
+      setSessionSummary(null);
+      setSummaryLoading(false);
+      return;
+    }
+
+    setSummaryLoading(true);
+    try {
+      const summary = await getLearnSessionSummary(activeSessionId);
+      setSessionSummary(summary);
+    } catch {
+      // Summary should not block learning flow.
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
 
   async function loadRecentSessions(subjectFilter?: string) {
     const normalized = (subjectFilter || subject || '').toLowerCase();
@@ -209,8 +344,24 @@ export function LearnPage() {
       role: msg.role,
       content: msg.content,
       tier: msg.tier || undefined,
+      msgMetadata: msg.msg_metadata || null,
       timestamp: msg.created_at ? new Date(msg.created_at) : new Date(),
     }));
+  }
+
+  function resolveTutorModeFromHistory(rows: LearnMessage[]): TutorMode {
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const metadata = rows[index].msg_metadata;
+      if (!metadata || typeof metadata !== 'object') {
+        continue;
+      }
+      const resolved = parseTutorMode((metadata as { mode?: unknown }).mode);
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    return 'guided';
   }
 
   async function handleReopenSession(targetSessionId: string, options?: { showToast?: boolean }) {
@@ -219,16 +370,28 @@ export function LearnPage() {
     setLoadingHistorySessionId(targetSessionId);
     setSessionsError(null);
     try {
-      const [sessionMeta, persisted] = await Promise.all([
+      const [sessionMeta, persisted, persistedMode, persistedSourceLock, summary] = await Promise.all([
         getLearnSession(targetSessionId),
         getLearnMessages(targetSessionId, 120),
+        getLearnSessionMode(targetSessionId).catch(() => null),
+        getLearnSessionSourceLock(targetSessionId).catch(() => null),
+        getLearnSessionSummary(targetSessionId).catch(() => null),
       ]);
 
       const remapped = mapPersistedMessagesToChat(persisted);
       setSessionId(sessionMeta.id);
       setDraftSessionTitle(sessionTitles[sessionMeta.id] ?? '');
+      setTutorMode(persistedMode?.mode ?? resolveTutorModeFromHistory(persisted));
+      setSourceLocked(Boolean(persistedSourceLock?.enabled));
+      setSessionSummary(summary);
       setMessages(remapped.length ? remapped : [buildWelcomeMessage(subject)]);
       setHistorySession(sessionMeta);
+      setCheckpointPrompt(null);
+      setCheckpointConceptKey(null);
+      setCheckpointResponse('');
+      setCheckpointSubmitting(false);
+      setExpandedCitationKey(null);
+      setLastCheckpointTurn(remapped.filter((msg) => msg.role === 'user').length);
       if (options?.showToast ?? true) {
         addToast('Previous learning session reopened.', 'success');
       }
@@ -261,7 +424,15 @@ export function LearnPage() {
     if (sessionId === targetSessionId) {
       setSessionId(null);
       setDraftSessionTitle('');
+      setTutorMode('guided');
+      setSourceLocked(false);
+      setSessionSummary(null);
+      setExpandedCitationKey(null);
+      setLastGeneratedArtifact(null);
       setMessages([buildWelcomeMessage(subject)]);
+      setCheckpointPrompt(null);
+      setCheckpointConceptKey(null);
+      setCheckpointResponse('');
     }
 
     try {
@@ -294,6 +465,9 @@ export function LearnPage() {
 
       const session = await startLearnSession(subject, numericLessonId);
       setSessionId(session.id);
+      await setLearnSessionMode(session.id, tutorMode).catch(() => undefined);
+      await setLearnSessionSourceLock(session.id, sourceLocked).catch(() => undefined);
+      setSessionSummary(null);
 
       const resolvedTitle = pendingTitle || (sessionTitles[session.id] ?? '');
       setDraftSessionTitle(resolvedTitle);
@@ -335,10 +509,21 @@ export function LearnPage() {
 
     setSessionId(null);
     setDraftSessionTitle('');
+    setTutorMode('guided');
+    setSourceLocked(false);
+    setSessionSummary(null);
+    setExpandedCitationKey(null);
+    setLastGeneratedArtifact(null);
     setMessages([buildWelcomeMessage(subject)]);
     setInput('');
     setHistorySession(null);
     setMenuSessionId(null);
+    setCheckpointPrompt(null);
+    setCheckpointConceptKey(null);
+    setCheckpointResponse('');
+    setLastCheckpointTurn(0);
+    setLatestCheckpointScore(null);
+    setLatestCheckpointFeedback(null);
     addToast('Ready for a new chat. A session is created after your first message.', 'success');
   }
 
@@ -346,6 +531,10 @@ export function LearnPage() {
   useEffect(() => {
     if (subject) recordSubjectStudied(subject);
   }, [subject, recordSubjectStudied]);
+
+  useEffect(() => {
+    setOutputLanguage(parseOutputLanguage(selectedLanguage));
+  }, [selectedLanguage]);
 
   // Track study time
   useEffect(() => {
@@ -377,6 +566,10 @@ export function LearnPage() {
   }, [sessionTitles]);
 
   useEffect(() => {
+    void refreshSessionSummary(sessionId ?? undefined);
+  }, [sessionId]);
+
+  useEffect(() => {
     if (!subject) return;
 
     if (reopenSessionIdFromRoute) {
@@ -394,8 +587,37 @@ export function LearnPage() {
     setMessages([buildWelcomeMessage(subject)]);
     setHistorySession(null);
     setMenuSessionId(null);
+    setTutorMode('guided');
+    setSourceLocked(false);
+    setSessionSummary(null);
+    setExpandedCitationKey(null);
+    setLastGeneratedArtifact(null);
+    setCheckpointPrompt(null);
+    setCheckpointConceptKey(null);
+    setCheckpointResponse('');
+    setCheckpointSubmitting(false);
+    setLastCheckpointTurn(0);
+    setLatestCheckpointScore(null);
+    setLatestCheckpointFeedback(null);
     void loadRecentSessions(subject);
+    void loadLessonContext(numericLessonId);
   }, [subject, lessonId]);
+
+  useEffect(() => {
+    if (!sessionId || loading || checkpointPrompt) return;
+
+    const userTurns = messages.filter((msg) => msg.role === 'user').length;
+    if (userTurns < CHECKPOINT_INTERVAL_TURNS) return;
+    if (userTurns % CHECKPOINT_INTERVAL_TURNS !== 0) return;
+    if (userTurns === lastCheckpointTurn) return;
+
+    const concept = lessonContext?.focus_topics?.[0] || lessonContext?.lesson_title || 'Current lesson concept';
+    setCheckpointConceptKey(concept);
+    setCheckpointPrompt(buildCheckpointPrompt(tutorMode, concept));
+    setCheckpointResponse('');
+    setCheckpointConfidence(60);
+    setLastCheckpointTurn(userTurns);
+  }, [checkpointPrompt, lastCheckpointTurn, lessonContext, loading, messages, sessionId, tutorMode]);
 
   async function handleSend() {
     const q = input.trim();
@@ -427,21 +649,23 @@ export function LearnPage() {
       }
 
       if (activeSessionId) {
-        const persisted = await sendLearnMessage(activeSessionId, q);
+        const persisted = await sendLearnMessage(activeSessionId, q, selectedLanguage, tutorMode, sourceLocked);
         assistantMsg = {
           id: String(persisted.id),
           role: 'assistant',
           content: persisted.content || 'Sorry, I could not process that question.',
           tier: persisted.tier || undefined,
+          msgMetadata: persisted.msg_metadata || null,
           timestamp: persisted.created_at ? new Date(persisted.created_at) : new Date(),
         };
       } else {
-        const res = await processQuery(q, subject);
+        const res = await processQuery(q, subject, undefined, selectedLanguage);
         assistantMsg = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
           content: res.answer || 'Sorry, I could not process that question.',
           tier: res.metadata?.tier,
+          msgMetadata: null,
           timestamp: new Date(),
         };
       }
@@ -449,6 +673,9 @@ export function LearnPage() {
       setMessages((prev) => [...prev, assistantMsg]);
       addXP(10);
       void loadRecentSessions(subject);
+      if (activeSessionId) {
+        void refreshSessionSummary(activeSessionId);
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -456,6 +683,7 @@ export function LearnPage() {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
           content: 'Oops! Something went wrong. Please make sure the APXMIND backend is running.',
+          msgMetadata: null,
           timestamp: new Date(),
         },
       ]);
@@ -510,6 +738,206 @@ export function LearnPage() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  }
+
+  function handleUseStarterPrompt(prompt: string, mode: string) {
+    const nextMode = parseTutorMode(mode);
+    if (nextMode) {
+      handleTutorModeChange(nextMode);
+    }
+    setInput(prompt);
+  }
+
+  async function handleSubmitCheckpoint() {
+    if (!sessionId || !checkpointPrompt || !checkpointConceptKey) {
+      return;
+    }
+    if (checkpointResponse.trim().length < 8) {
+      addToast('Write a short checkpoint response before submitting.', 'info');
+      return;
+    }
+
+    setCheckpointSubmitting(true);
+    try {
+      const result = await submitLearnCheckpoint(sessionId, {
+        concept_key: checkpointConceptKey,
+        prompt: checkpointPrompt,
+        response_text: checkpointResponse.trim(),
+        confidence: checkpointConfidence,
+      });
+
+      setLatestCheckpointScore(result.score_percent);
+      setLatestCheckpointFeedback(result.feedback);
+      setCheckpointPrompt(null);
+      setCheckpointConceptKey(null);
+      setCheckpointResponse('');
+      addToast(`Checkpoint saved: ${result.score_percent}%`, 'success');
+      void refreshSessionSummary(sessionId);
+    } catch (error) {
+      addToast(getApiErrorMessage(error, 'Unable to save checkpoint right now.'), 'error');
+    } finally {
+      setCheckpointSubmitting(false);
+    }
+  }
+
+  function handleSkipCheckpoint() {
+    setCheckpointPrompt(null);
+    setCheckpointConceptKey(null);
+    setCheckpointResponse('');
+  }
+
+  function handleTutorModeChange(mode: TutorMode) {
+    setTutorMode(mode);
+    if (!sessionId) return;
+
+    void setLearnSessionMode(sessionId, mode).catch(() => {
+      // Best effort persistence; mode stays active in UI for current session.
+    });
+  }
+
+  function handleToggleOutputLanguage() {
+    setOutputLanguage((prev) => (prev === 'en' ? 'ta' : 'en'));
+  }
+
+  function handleSourceLockChange(enabled: boolean) {
+    setSourceLocked(enabled);
+    if (!sessionId) return;
+
+    void setLearnSessionSourceLock(sessionId, enabled)
+      .then(() => refreshSessionSummary(sessionId))
+      .catch(() => {
+        // Best effort persistence; local state remains active.
+      });
+  }
+
+  async function ensureActiveSessionForArtifacts() {
+    if (sessionId) {
+      return sessionId;
+    }
+    return createNewSession({ resetChat: false, showToast: false, endCurrent: false });
+  }
+
+  async function handleGenerateChapterBrief() {
+    if (chapterBriefLoading) return;
+
+    setChapterBriefLoading(true);
+    try {
+      const activeSessionId = await ensureActiveSessionForArtifacts();
+      if (!activeSessionId) {
+        addToast('Unable to start a learning session for chapter brief.', 'error');
+        return;
+      }
+
+      const brief = await generateLearnChapterBrief(activeSessionId, {
+        language: outputLanguage,
+        source_locked: sourceLocked,
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `brief-${Date.now()}`,
+          role: 'assistant',
+          content: brief.markdown,
+          tier: 'artifact',
+          msgMetadata: {
+            citations: brief.citations,
+            output_language: brief.language,
+            source_locked: sourceLocked,
+            artifact_type: 'chapter_brief',
+          },
+          timestamp: new Date(),
+        },
+      ]);
+
+      setLastGeneratedArtifact(`Chapter brief (${outputLanguageLabel(parseOutputLanguage(brief.language))})`);
+      addToast('Chapter brief generated from lesson sources.', 'success');
+      void refreshSessionSummary(activeSessionId);
+    } catch (error) {
+      addToast(getApiErrorMessage(error, 'Unable to generate chapter brief right now.'), 'error');
+    } finally {
+      setChapterBriefLoading(false);
+    }
+  }
+
+  async function handleConvertSessionToNotes() {
+    if (notesConverting) return;
+
+    setNotesConverting(true);
+    try {
+      const activeSessionId = await ensureActiveSessionForArtifacts();
+      if (!activeSessionId) {
+        addToast('Unable to start a learning session for notes conversion.', 'error');
+        return;
+      }
+
+      const notes = await convertLearnSessionToNotes(activeSessionId, {
+        language: outputLanguage,
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `notes-${Date.now()}`,
+          role: 'assistant',
+          content: `### Session Notes Saved\n\n**Title:** ${notes.title}\n**Language:** ${outputLanguageLabel(parseOutputLanguage(notes.language))}\n\n${notes.markdown}`,
+          tier: 'artifact',
+          msgMetadata: {
+            output_language: notes.language,
+            artifact_type: 'session_notes',
+            note_id: notes.note_id,
+          },
+          timestamp: new Date(),
+        },
+      ]);
+
+      setLastGeneratedArtifact(`Session notes (${outputLanguageLabel(parseOutputLanguage(notes.language))})`);
+      addToast('Session converted into structured study notes.', 'success');
+      void refreshSessionSummary(activeSessionId);
+    } catch (error) {
+      addToast(getApiErrorMessage(error, 'Unable to convert this session into notes.'), 'error');
+    } finally {
+      setNotesConverting(false);
+    }
+  }
+
+  async function handleGenerateRevisionSheet() {
+    if (revisionSheetLoading) return;
+
+    setRevisionSheetLoading(true);
+    try {
+      if (!sessionId) {
+        addToast('Start chatting first to generate a revision sheet from checkpoints.', 'info');
+        return;
+      }
+
+      const revisionSheet = await generateLearnRevisionSheet(sessionId, {
+        language: outputLanguage,
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `revision-${Date.now()}`,
+          role: 'assistant',
+          content: revisionSheet.markdown,
+          tier: 'artifact',
+          msgMetadata: {
+            output_language: revisionSheet.language,
+            artifact_type: 'revision_sheet',
+          },
+          timestamp: new Date(),
+        },
+      ]);
+
+      setLastGeneratedArtifact(`Revision sheet (${outputLanguageLabel(parseOutputLanguage(revisionSheet.language))})`);
+      addToast('Revision sheet generated from checkpoint analytics.', 'success');
+      void refreshSessionSummary(sessionId);
+    } catch (error) {
+      addToast(getApiErrorMessage(error, 'Unable to generate revision sheet right now.'), 'error');
+    } finally {
+      setRevisionSheetLoading(false);
     }
   }
 
@@ -850,6 +1278,98 @@ export function LearnPage() {
             </div>
           ) : null}
 
+          <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+            <LessonMissionCard
+              context={lessonContext}
+              isLoading={lessonContextLoading}
+              error={lessonContextError}
+              onUsePrompt={handleUseStarterPrompt}
+              compact
+            />
+
+            <TutorModeSelector
+              selectedMode={tutorMode}
+              onChange={handleTutorModeChange}
+              isDisabled={loading}
+              compact
+            />
+          </div>
+
+          {SHOW_NOTEBOOK_FEATURES_IN_LEARN ? (
+            <Card className="glass border-border-strong shrink-0">
+              <div className="p-2.5 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={sourceLocked ? 'solid' : 'flat'}
+                  color={sourceLocked ? 'secondary' : 'default'}
+                  startContent={<ShieldCheck className="w-3.5 h-3.5" />}
+                  onPress={() => handleSourceLockChange(!sourceLocked)}
+                >
+                  {sourceLocked ? 'Source Locked' : 'Source Open'}
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="flat"
+                  startContent={<BookText className="w-3.5 h-3.5" />}
+                  isLoading={chapterBriefLoading}
+                  onPress={() => void handleGenerateChapterBrief()}
+                >
+                  Chapter Brief
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="flat"
+                  startContent={<FileDown className="w-3.5 h-3.5" />}
+                  isLoading={notesConverting}
+                  onPress={() => void handleConvertSessionToNotes()}
+                >
+                  Session Notes
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="flat"
+                  color="secondary"
+                  isLoading={revisionSheetLoading}
+                  onPress={() => void handleGenerateRevisionSheet()}
+                >
+                  Revision Sheet
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="light"
+                  startContent={<Languages className="w-3.5 h-3.5" />}
+                  onPress={handleToggleOutputLanguage}
+                >
+                  Output: {outputLanguageLabel(outputLanguage)}
+                </Button>
+
+                {sessionSummary ? (
+                  <>
+                    <Chip size="sm" variant="flat" className="text-[10px] uppercase tracking-wide">
+                      {summaryLoading ? 'Summary...' : `Msgs: ${sessionSummary.message_count}`}
+                    </Chip>
+                    <Chip size="sm" variant="flat" className="text-[10px] uppercase tracking-wide">
+                      Checkpoints: {sessionSummary.checkpoint_count}
+                    </Chip>
+                    {sessionSummary.avg_checkpoint_score !== null && sessionSummary.avg_checkpoint_score !== undefined ? (
+                      <Chip size="sm" variant="flat" color="secondary" className="text-[10px] uppercase tracking-wide">
+                        Avg: {Math.round(sessionSummary.avg_checkpoint_score)}%
+                      </Chip>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {lastGeneratedArtifact ? (
+                  <p className="text-[11px] text-text-secondary">Latest: {lastGeneratedArtifact}</p>
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
+
           <Card className="glass border-border-strong shrink-0">
             <div className="p-3 flex items-center gap-2">
               <Input
@@ -873,29 +1393,42 @@ export function LearnPage() {
 
           {/* Chat area */}
           <Card className="glass border-border-strong flex flex-col flex-1 min-h-[52vh] xl:min-h-0">
-            <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4">
-              <div className="chat-thread">
+            {checkpointPrompt && checkpointConceptKey ? (
+              <div className="p-3 border-b border-border-subtle shrink-0">
+                <CheckpointPulseCard
+                  conceptKey={checkpointConceptKey}
+                  prompt={checkpointPrompt}
+                  responseText={checkpointResponse}
+                  confidence={checkpointConfidence}
+                  isSubmitting={checkpointSubmitting}
+                  onResponseChange={setCheckpointResponse}
+                  onConfidenceChange={setCheckpointConfidence}
+                  onSubmit={handleSubmitCheckpoint}
+                  onSkip={handleSkipCheckpoint}
+                />
+              </div>
+            ) : null}
+
+            <div ref={chatScrollRef} className="chat-surface flex-1 overflow-y-auto p-4 md:p-5">
+              <div className="chat-thread mx-auto w-full max-w-[980px]">
                 {messages.map((msg) => (
                   <motion.div
                     key={msg.id}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    className={`chat-row ${msg.role === 'user' ? 'chat-row-user' : 'chat-row-assistant'}`}
                   >
                     {msg.role === 'assistant' && (
-                      <div className="shrink-0 w-8 h-8 rounded-full bg-linear-to-br from-emerald-500 to-purple-500 flex items-center justify-center mt-1">
+                      <div className="chat-avatar chat-avatar-assistant">
                         <Bot className="w-4 h-4 text-white" />
                       </div>
                     )}
                     <div
-                      className={`max-w-[86%] ${msg.role === 'user'
-                        ? 'chat-user-card'
-                        : 'chat-assistant-card'
-                        }`}
+                      className={`${msg.role === 'user' ? 'chat-user-card chat-bubble-user' : 'chat-assistant-card chat-bubble-assistant'}`}
                     >
                       <div className="chat-message-meta">
-                        <span>{msg.role === 'assistant' ? 'APXMIND' : 'You'}</span>
-                        <span>{formatTimestamp(msg.timestamp)}</span>
+                        <span className="chat-meta-role">{msg.role === 'assistant' ? 'APXMIND' : 'You'}</span>
+                        <time className="chat-meta-time">{formatTimestamp(msg.timestamp)}</time>
                       </div>
 
                       <div className="chat-markdown">
@@ -915,20 +1448,78 @@ export function LearnPage() {
                           </Chip>
                         </div>
                       )}
+
+                      {SHOW_NOTEBOOK_FEATURES_IN_LEARN && msg.role === 'assistant' && extractCitations(msg.msgMetadata).length > 0 ? (
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex flex-wrap gap-1.5">
+                            {extractCitations(msg.msgMetadata).map((citation, index) => {
+                              const citationKey = `${msg.id}:${citation.source_id}:${index}`;
+                              const isOpen = expandedCitationKey === citationKey;
+                              return (
+                                <Button
+                                  key={citationKey}
+                                  size="sm"
+                                  variant={isOpen ? 'solid' : 'flat'}
+                                  color={isOpen ? 'secondary' : 'default'}
+                                  onPress={() => setExpandedCitationKey(isOpen ? null : citationKey)}
+                                  className="h-6 px-2 min-w-0"
+                                >
+                                  <span className="truncate max-w-[220px] text-[10px]">
+                                    {citation.title}{citation.page ? ` · p.${citation.page}` : ''}
+                                  </span>
+                                </Button>
+                              );
+                            })}
+                          </div>
+
+                          {(() => {
+                            const opened = extractCitations(msg.msgMetadata).find((citation, index) => {
+                              const citationKey = `${msg.id}:${citation.source_id}:${index}`;
+                              return citationKey === expandedCitationKey;
+                            });
+
+                            if (!opened) {
+                              return null;
+                            }
+
+                            return (
+                              <div
+                                className="rounded-md p-2"
+                                style={{
+                                  background: 'var(--bg-2)',
+                                  border: '1px solid var(--border-subtle)',
+                                }}
+                              >
+                                <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-faint)' }}>
+                                  Source Evidence
+                                </p>
+                                <p className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                                  {opened.snippet || 'No snippet available for this citation.'}
+                                </p>
+                                {opened.source ? (
+                                  <p className="text-[10px] mt-1" style={{ color: 'var(--text-faint)' }}>
+                                    {opened.source}
+                                  </p>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      ) : null}
                     </div>
                     {msg.role === 'user' && (
-                      <div className="shrink-0 w-8 h-8 rounded-full bg-secondary/20 flex items-center justify-center mt-1">
+                      <div className="chat-avatar chat-avatar-user">
                         <User className="w-4 h-4 text-secondary" />
                       </div>
                     )}
                   </motion.div>
                 ))}
                 {loading && (
-                  <div className="flex gap-3">
-                    <div className="shrink-0 w-8 h-8 rounded-full bg-linear-to-br from-emerald-500 to-purple-500 flex items-center justify-center mt-1">
+                  <div className="chat-row chat-row-assistant">
+                    <div className="chat-avatar chat-avatar-assistant">
                       <Bot className="w-4 h-4 text-white" />
                     </div>
-                    <div className="chat-assistant-card px-4 py-3">
+                    <div className="chat-assistant-card chat-bubble-assistant px-4 py-3">
                       <Spinner size="sm" color="secondary" />
                     </div>
                   </div>
@@ -938,7 +1529,50 @@ export function LearnPage() {
 
             <Divider />
 
-            <div className="p-3 flex gap-2">
+            <div className="px-3 pt-2 flex flex-wrap items-center gap-2">
+              <Chip
+                size="sm"
+                variant="flat"
+                color="secondary"
+                className="text-[10px] uppercase tracking-wide"
+              >
+                Mode: {TUTOR_MODE_LABELS[tutorMode]}
+              </Chip>
+
+              {SHOW_NOTEBOOK_FEATURES_IN_LEARN ? (
+                <Chip
+                  size="sm"
+                  variant="flat"
+                  color={sourceLocked ? 'warning' : 'default'}
+                  className="text-[10px] uppercase tracking-wide"
+                >
+                  Source: {sourceLocked ? 'Locked' : 'Open'}
+                </Chip>
+              ) : null}
+
+              {latestCheckpointScore !== null ? (
+                <Chip
+                  size="sm"
+                  variant="flat"
+                  color={latestCheckpointScore >= 70 ? 'success' : 'warning'}
+                  className="text-[10px] uppercase tracking-wide"
+                >
+                  Checkpoint: {latestCheckpointScore}%
+                </Chip>
+              ) : null}
+
+              {latestCheckpointFeedback ? (
+                <p className="text-[11px] text-text-secondary">{latestCheckpointFeedback}</p>
+              ) : null}
+
+              {SHOW_NOTEBOOK_FEATURES_IN_LEARN && sessionSummary?.latest_checkpoint_score !== null && sessionSummary?.latest_checkpoint_score !== undefined ? (
+                <p className="text-[11px] text-text-secondary">
+                  Latest summary score: {sessionSummary.latest_checkpoint_score}%
+                </p>
+              ) : null}
+            </div>
+
+            <div className="p-3 pt-2 flex gap-2">
               <Input
                 aria-label="Message input"
                 placeholder={`Ask about ${subjectLabels[subject || ''] || 'any subject'}...`}

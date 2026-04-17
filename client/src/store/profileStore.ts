@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { normalizeLanguage } from '../lib/language';
 
 export interface UserProfile {
   name: string;
@@ -39,7 +40,7 @@ export function normalizeApiUserProfile(user: ApiUserProfile): UserProfile {
     strongSubjects: user.strong_subjects ?? [],
     weakSubjects: user.weak_subjects ?? [],
     dailyStudyTarget: user.daily_study_target ?? 4,
-    preferredLanguage: user.preferred_language ?? 'english',
+    preferredLanguage: normalizeLanguage(user.preferred_language),
   };
 }
 

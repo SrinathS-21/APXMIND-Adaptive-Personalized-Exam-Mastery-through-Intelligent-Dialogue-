@@ -8,12 +8,14 @@ import json
 import re
 import sys
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
+
+UTC = timezone.utc
 
 
 @dataclass

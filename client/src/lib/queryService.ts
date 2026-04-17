@@ -7,6 +7,7 @@ export interface QueryRequest {
   query: string;
   subject?: string;
   user_id?: number;
+  language?: string;
   context?: Record<string, unknown>;
 }
 
@@ -35,14 +36,16 @@ export interface QueryResponse {
 export const processQuery = async (
   query: string,
   subject?: string,
-  userId?: number
+  userId?: number,
+  language?: string
 ): Promise<QueryResponse> => {
   try {
     const requestData: QueryRequest = {
       query,
       subject,
       user_id: userId,
-      context: {},
+      language,
+      context: language ? { language } : {},
     };
 
     const response = await apiClient.post<QueryResponse>(

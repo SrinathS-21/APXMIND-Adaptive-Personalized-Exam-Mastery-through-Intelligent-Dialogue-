@@ -2,6 +2,7 @@
 // In production: same origin (FastAPI serves the SPA)
 // In dev: Vite proxy forwards /api/* → http://localhost:8000
 import axios from 'axios';
+import { readLanguageFromPersistedProfile } from './language';
 
 // Create axios instance with default config — no baseURL needed (relative URLs)
 const apiClient = axios.create({
@@ -19,6 +20,10 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    const selectedLanguage = readLanguageFromPersistedProfile();
+    (config.headers as Record<string, string>)['X-APXMIND-Language'] = selectedLanguage;
+
     if (import.meta.env.DEV) {
       console.log('🚀 API Request:', config.method?.toUpperCase(), config.url);
     }

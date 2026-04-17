@@ -198,7 +198,7 @@ export function SubjectPage() {
           variant="flat"
           startContent={<BrainCircuit className="w-4 h-4" />}
           onPress={() => {
-            if (lessons[0]) navigate(`/subject/${subject}/lesson/${lessons[0].id}/quiz`);
+            if (subject) navigate(`/subject/${subject}/quiz`);
           }}
         >
           Quick Quiz

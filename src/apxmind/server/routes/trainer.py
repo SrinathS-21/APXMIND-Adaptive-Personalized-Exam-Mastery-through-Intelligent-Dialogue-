@@ -11,7 +11,7 @@ import uuid
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from ...api.schemas import (
     QuizRequest,
@@ -24,6 +24,7 @@ from ...api.schemas import (
     ErrorResponse,
 )
 from ...core.dependencies import get_vectorstore, get_creative_llm, get_llm
+from ...core.language import language_name, resolve_request_language
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ def _evaluate_answer(user_answer: str, correct_answer: str | None, options: list
     responses={400: {"model": ErrorResponse}},
     summary="Generate MCQ quiz",
 )
-async def generate_quiz(request: QuizRequest):
+async def generate_quiz(request: QuizRequest, http_request: Request):
     """Generate a quiz with MCQ questions for the given subject and difficulty."""
     start_time = time.time()
 
@@ -143,6 +144,10 @@ async def generate_quiz(request: QuizRequest):
         subject = request.subject.value
         difficulty = request.difficulty.value
         question_count = request.question_count
+        selected_language = resolve_request_language(
+            explicit=request.language,
+            header=http_request.headers.get("X-APXMIND-Language"),
+        )
 
         logger.info(f"Generating quiz: subject={subject}, difficulty={difficulty}, count={question_count}")
 
@@ -153,7 +158,12 @@ async def generate_quiz(request: QuizRequest):
         if question_bank:
             try:
                 questions = _generate_quiz_from_vectorstore(
-                    question_bank, subject, difficulty, question_count, request.topics
+                    question_bank,
+                    subject,
+                    difficulty,
+                    question_count,
+                    request.topics,
+                    selected_language,
                 )
             except Exception as e:
                 logger.warning(f"Vectorstore quiz generation failed: {e}")
@@ -187,7 +197,7 @@ async def generate_quiz(request: QuizRequest):
     response_model=AnswerSubmitResponse,
     summary="Evaluate user's answer",
 )
-async def submit_answer(request: AnswerSubmitRequest):
+async def submit_answer(request: AnswerSubmitRequest, http_request: Request):
     """Evaluate a user's answer to a quiz question."""
     try:
         is_correct = _evaluate_answer(
@@ -202,6 +212,11 @@ async def submit_answer(request: AnswerSubmitRequest):
         ) or (request.correct_answer or "")
 
         explanation = ""
+        selected_language = resolve_request_language(
+            explicit=request.language,
+            header=http_request.headers.get("X-APXMIND-Language"),
+        )
+        selected_language_name = language_name(selected_language)
         if request.question_text:
             try:
                 llm = get_llm()
@@ -210,12 +225,14 @@ async def submit_answer(request: AnswerSubmitRequest):
 
                 prompt = PromptTemplate.from_template(
                     "Briefly explain why the answer to this NEET question is correct:\n\n"
-                    "Question: {question}\nCorrect Answer: {answer}\n\nExplanation:"
+                    "Question: {question}\nCorrect Answer: {answer}\n"
+                    "Write the explanation in {language_name}.\n\nExplanation:"
                 )
                 chain = prompt | llm | StrOutputParser()
                 explanation = chain.invoke({
                     "question": request.question_text,
                     "answer": resolved_correct_answer or request.user_answer,
+                    "language_name": selected_language_name,
                 })
             except Exception as e:
                 logger.warning(f"Explanation generation failed: {e}")
@@ -244,13 +261,14 @@ async def submit_answer(request: AnswerSubmitRequest):
 # ── Helper functions ────────────────────────────────────────────────────────
 
 
-def _generate_quiz_from_vectorstore(question_bank, subject, difficulty, count, topics):
+def _generate_quiz_from_vectorstore(question_bank, subject, difficulty, count, topics, language):
     """Generate quiz questions using vectorstore retrieval + LLM."""
     from langchain_core.prompts import PromptTemplate
     from langchain_core.output_parsers import StrOutputParser
     import json
 
     llm = get_creative_llm()
+    output_language_name = language_name(language)
 
     topic_hint = f" on topics: {', '.join(topics)}" if topics else ""
     retriever = question_bank.as_retriever(search_kwargs={"k": count * 2})
@@ -262,6 +280,7 @@ def _generate_quiz_from_vectorstore(question_bank, subject, difficulty, count, t
         "Based on the following NEET exam content, generate {count} multiple-choice questions "
         "for {subject} at {difficulty} difficulty.\n\n"
         "Context:\n{context}\n\n"
+        "Write question text, options, and explanations in {language_name}.\n"
         "Return ONLY a JSON array of objects with keys: question, options (array of 4), "
         "correct_answer (letter A-D), explanation, topic.\n\n"
         "JSON:"
@@ -272,6 +291,7 @@ def _generate_quiz_from_vectorstore(question_bank, subject, difficulty, count, t
         "subject": subject,
         "difficulty": difficulty,
         "context": context,
+        "language_name": output_language_name,
     })
 
     try:

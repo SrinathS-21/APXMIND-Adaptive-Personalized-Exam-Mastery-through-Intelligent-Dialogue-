@@ -27,6 +27,8 @@ import {
   type QuizSummary,
 } from '../lib/quizService';
 import { useGamificationStore } from '../store/gamificationStore';
+import { useProfileStore } from '../store/profileStore';
+import { normalizeLanguage } from '../lib/language';
 
 type Phase = 'setup' | 'playing' | 'review' | 'segmentComplete' | 'results';
 type QuizSubject = 'physics' | 'chemistry' | 'biology';
@@ -104,6 +106,8 @@ export function DailyMiniSetPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { recordQuizComplete } = useGamificationStore();
+  const profile = useProfileStore((s) => s.profile);
+  const selectedLanguage = normalizeLanguage(profile?.preferredLanguage);
 
   const taskId = searchParams.get('taskId')?.trim() || '';
   const plannerTopicRaw = searchParams.get('topic')?.trim() || '';
@@ -161,7 +165,7 @@ export function DailyMiniSetPage() {
     setTaskUpdateMessage(null);
 
     try {
-      const response = await startQuiz(subject, 'mixed', QUESTIONS_PER_SUBJECT, plannerTopic);
+      const response = await startQuiz(subject, 'mixed', QUESTIONS_PER_SUBJECT, plannerTopic, selectedLanguage);
       const session: SubjectSession = {
         subject,
         quizId: response.quiz.id,
@@ -230,8 +234,8 @@ export function DailyMiniSetPage() {
     try {
       const hasExisting = activeSession.answers.some((entry) => entry.question.id === activeQuestion.id);
       const response = hasExisting
-        ? await updateQuizAnswer(activeSession.quizId, activeQuestion.id, selectedAnswer, 3)
-        : await submitQuizAnswer(activeSession.quizId, activeQuestion.id, selectedAnswer, 3);
+        ? await updateQuizAnswer(activeSession.quizId, activeQuestion.id, selectedAnswer, 3, selectedLanguage)
+        : await submitQuizAnswer(activeSession.quizId, activeQuestion.id, selectedAnswer, 3, selectedLanguage);
 
       const answerSnapshot: AnswerSnapshot = {
         question: activeQuestion,

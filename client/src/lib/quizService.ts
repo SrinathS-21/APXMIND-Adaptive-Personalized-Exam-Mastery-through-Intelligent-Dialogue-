@@ -39,6 +39,7 @@ export interface QuizListParams {
     subject?: 'physics' | 'chemistry' | 'biology';
     status?: 'active' | 'completed' | 'abandoned';
     difficulty?: QuizDifficulty;
+    topic?: string;
     limit?: number;
     offset?: number;
 }
@@ -86,13 +87,15 @@ export async function startQuiz(
     subject: 'physics' | 'chemistry' | 'biology',
     difficulty: QuizDifficulty,
     questionCount: number,
-    topic?: string
+    topic?: string,
+    language?: string
 ) {
     const response = await apiClient.post<StartQuizResponse>('/api/quiz', {
         subject,
         difficulty,
         question_count: questionCount,
         topic,
+        language,
     });
     return response.data;
 }
@@ -101,12 +104,14 @@ export async function submitQuizAnswer(
     quizId: string,
     questionId: number,
     userAnswer: string,
-    confidenceLevel?: number
+    confidenceLevel?: number,
+    language?: string
 ) {
     const response = await apiClient.post<SubmitQuizAnswerResponse>(`/api/quiz/${quizId}/answers`, {
         question_id: questionId,
         user_answer: userAnswer,
         confidence_level: confidenceLevel,
+        language,
     });
     return response.data;
 }
@@ -115,11 +120,13 @@ export async function updateQuizAnswer(
     quizId: string,
     questionId: number,
     userAnswer: string,
-    confidenceLevel?: number
+    confidenceLevel?: number,
+    language?: string
 ) {
     const response = await apiClient.put<SubmitQuizAnswerResponse>(`/api/quiz/${quizId}/answers/${questionId}`, {
         user_answer: userAnswer,
         confidence_level: confidenceLevel,
+        language,
     });
     return response.data;
 }
@@ -155,6 +162,9 @@ export async function listQuizHistoryPaged(params?: QuizListParams) {
     }
     if (params?.difficulty) {
         query.set('difficulty', params.difficulty);
+    }
+    if (params?.topic?.trim()) {
+        query.set('topic', params.topic.trim());
     }
     query.set('limit', String(params?.limit ?? 10));
     query.set('offset', String(params?.offset ?? 0));

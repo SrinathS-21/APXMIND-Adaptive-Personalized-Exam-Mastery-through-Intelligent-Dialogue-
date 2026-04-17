@@ -44,6 +44,7 @@ export interface SubmitAnswerRequest {
   quiz_id: string;
   question_id: number;
   user_answer: string;
+  language?: string;
   options?: string[];
   correct_answer: string;
   question_text?: string;
@@ -111,13 +112,15 @@ export const submitAnswer = async (
   userAnswer: string,
   correctAnswer: string,
   questionText?: string,
-  options?: string[]
+  options?: string[],
+  language?: string
 ): Promise<SubmitAnswerResponse> => {
   try {
     const requestData: SubmitAnswerRequest = {
       quiz_id: quizId,
       question_id: questionId,
       user_answer: userAnswer,
+      language,
       options,
       correct_answer: correctAnswer,
       question_text: questionText,

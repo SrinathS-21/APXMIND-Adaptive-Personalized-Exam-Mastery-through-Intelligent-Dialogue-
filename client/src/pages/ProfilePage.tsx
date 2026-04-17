@@ -15,6 +15,7 @@ import { CalendarDate, today, getLocalTimeZone, parseDate } from '@international
 import { motion } from 'framer-motion';
 import { User, Save, Trash2 } from 'lucide-react';
 import apiClient from '../lib/api';
+import { normalizeLanguage } from '../lib/language';
 import { normalizeApiUserProfile, useProfileStore, type UserProfile } from '../store/profileStore';
 import { useGamificationStore } from '../store/gamificationStore';
 
@@ -45,7 +46,7 @@ export function ProfilePage() {
       strong_subjects: profile?.strongSubjects ?? [],
       weak_subjects: profile?.weakSubjects ?? [],
       daily_study_target: dailyStudyTarget,
-      preferred_language: profile?.preferredLanguage ?? 'english',
+      preferred_language: normalizeLanguage(profile?.preferredLanguage),
     };
 
     setIsSaving(true);

@@ -11,6 +11,8 @@ from typing import Dict, Any, Optional
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+from ..core.language import language_name, normalize_language
+
 logger = logging.getLogger(__name__)
 
 
@@ -250,7 +252,47 @@ def _build_excerpt_answer(query: str, retrieved_docs: list[Any], subject: str) -
     )
 
 
-def retriever_agent(query: str, vectorstore, llm, subject: str) -> Dict[str, Any]:
+def _not_found_in_source(language: str) -> str:
+    if normalize_language(language) == "ta":
+        return "தேர்ந்தெடுக்கப்பட்ட மூலத்தில் இந்த கேள்விக்கு ஆதாரம் கிடைக்கவில்லை."
+    return "Not found in source."
+
+
+def _source_citation_from_doc(doc: Any, fallback_subject: str, index: int) -> Dict[str, Any]:
+    metadata = doc.metadata or {}
+    page_raw = metadata.get("page")
+    page = int(page_raw) if isinstance(page_raw, int) else None
+    content = (doc.page_content or "").strip().replace("\n", " ")
+    snippet = content[:260] + ("..." if len(content) > 260 else "")
+    title = (
+        metadata.get("title")
+        or metadata.get("chapter")
+        or metadata.get("source")
+        or f"Source {index}"
+    )
+    subject = metadata.get("subject") or fallback_subject
+    source_ref = metadata.get("source") or metadata.get("path")
+    source_id = f"{title}:{page if page is not None else index}"
+
+    return {
+        "source_id": source_id,
+        "title": str(title),
+        "page": page,
+        "subject": str(subject) if subject else None,
+        "snippet": snippet,
+        "source": str(source_ref) if source_ref else None,
+        "relevance": 0.85,
+    }
+
+
+def retriever_agent(
+    query: str,
+    vectorstore,
+    llm,
+    subject: str,
+    language: str = "en",
+    source_locked: bool = False,
+) -> Dict[str, Any]:
     """
     Retrieval-based QA agent (Tier-1).
     
@@ -264,6 +306,8 @@ def retriever_agent(query: str, vectorstore, llm, subject: str) -> Dict[str, Any
         Dict with answer, confidence, and sources
     """
     try:
+        selected_language_name = language_name(normalize_language(language))
+
         def _llm_fallback_answer() -> str:
             if llm is None:
                 raise RuntimeError("LLM instance unavailable")
@@ -271,15 +315,30 @@ def retriever_agent(query: str, vectorstore, llm, subject: str) -> Dict[str, Any
             fallback_template = """You are an expert NEET tutor specializing in {subject}.
 Answer the student's question clearly and concisely.
 When possible, include key definitions, one short example, and a quick exam tip.
+Write the full answer in {language_name}.
 
 Question: {question}
 
 Answer:"""
 
             fallback_chain = PromptTemplate.from_template(fallback_template) | llm | StrOutputParser()
-            return fallback_chain.invoke({"subject": subject, "question": query})
+            return fallback_chain.invoke(
+                {
+                    "subject": subject,
+                    "question": query,
+                    "language_name": selected_language_name,
+                }
+            )
 
         if vectorstore is None:
+            if source_locked:
+                return {
+                    'answer': _not_found_in_source(language),
+                    'confidence': 0.95,
+                    'sources': [],
+                    'method': 'source_locked_no_vectorstore',
+                    'warning': 'Vectorstore not available',
+                }
             try:
                 answer = _llm_fallback_answer()
             except Exception as llm_exc:
@@ -308,6 +367,14 @@ Answer:"""
             retrieved_docs = []
         
         if not retrieved_docs:
+            if source_locked:
+                return {
+                    'answer': _not_found_in_source(language),
+                    'confidence': 0.98,
+                    'sources': [],
+                    'method': 'source_locked_no_match',
+                    'warning': retrieval_warning,
+                }
             # Fallback: Direct LLM response (if available), else deterministic guidance.
             try:
                 answer = _llm_fallback_answer()
@@ -339,7 +406,8 @@ Answer:"""
         
         # Generate answer using RAG
         rag_template = """Answer the question based on the following context from NEET study materials.
-Be clear, concise, and accurate. Use simple English suitable for students.
+Be clear, concise, and accurate. Use student-friendly wording.
+Write the final answer in {language_name}.
 
 Context:
 {context}
@@ -352,7 +420,13 @@ Answer:"""
             if llm is None:
                 raise RuntimeError("LLM instance unavailable")
             rag_chain = PromptTemplate.from_template(rag_template) | llm | StrOutputParser()
-            answer = rag_chain.invoke({"context": context_str, "question": query})
+            answer = rag_chain.invoke(
+                {
+                    "context": context_str,
+                    "question": query,
+                    "language_name": selected_language_name,
+                }
+            )
             method = 'rag'
             confidence = 0.9
         except Exception as llm_exc:
@@ -363,14 +437,8 @@ Answer:"""
         
         # Extract source metadata
         sources = []
-        for doc in retrieved_docs[:3]:  # Top 3 sources
-            metadata = doc.metadata or {}
-            sources.append({
-                'title': metadata.get('title', 'Unknown'),
-                'page': metadata.get('page', 0),
-                'subject': metadata.get('subject', subject),
-                'relevance': 0.85  # Placeholder
-            })
+        for index, doc in enumerate(retrieved_docs[:4], start=1):
+            sources.append(_source_citation_from_doc(doc, subject, index))
         
         return {
             'answer': _format_for_chat_display(answer, query, subject),
@@ -394,7 +462,13 @@ Answer:"""
         }
 
 
-def orchestrator_agent(query: str, vectorstores: Dict[str, Any], llm, subject: str) -> Dict[str, Any]:
+def orchestrator_agent(
+    query: str,
+    vectorstores: Dict[str, Any],
+    llm,
+    subject: str,
+    language: str = "en",
+) -> Dict[str, Any]:
     """
     Advanced orchestration agent for complex queries (Tier-2).
     
@@ -408,6 +482,7 @@ def orchestrator_agent(query: str, vectorstores: Dict[str, Any], llm, subject: s
         Dict with answer, reasoning, and sources
     """
     try:
+        selected_language_name = language_name(normalize_language(language))
         # For complex queries, we might need to:
         # 1. Break down the question
         # 2. Retrieve from multiple subjects
@@ -441,13 +516,10 @@ Response:"""
                     if docs:
                         context_parts.append(f"=== From {subj.upper()} ===\n" + "\n".join([d.page_content for d in docs]))
                         
-                        for doc in docs:
-                            metadata = doc.metadata or {}
-                            all_sources.append({
-                                'title': metadata.get('title', 'Unknown'),
-                                'subject': subj,
-                                'relevance': 0.75
-                            })
+                        for index, doc in enumerate(docs, start=1):
+                            source_row = _source_citation_from_doc(doc, subj, index)
+                            source_row['relevance'] = 0.75
+                            all_sources.append(source_row)
                 except Exception as e:
                     logger.warning(f"Failed to retrieve from {subj}: {e}")
         
@@ -456,6 +528,7 @@ Response:"""
             context_str = "\n\n".join(context_parts)
             
             synthesis_template = """You are an expert NEET tutor. Answer this complex question by synthesizing information from multiple sources.
+Write the full answer in {language_name}.
 
 Context from study materials:
 {context}
@@ -470,7 +543,13 @@ Provide a comprehensive answer that:
 Answer:"""
             
             synthesis_chain = PromptTemplate.from_template(synthesis_template) | llm | StrOutputParser()
-            answer = synthesis_chain.invoke({"context": context_str, "query": query})
+            answer = synthesis_chain.invoke(
+                {
+                    "context": context_str,
+                    "query": query,
+                    "language_name": selected_language_name,
+                }
+            )
             
             return {
                 'answer': _format_for_chat_display(answer, query, subject),
@@ -483,13 +562,19 @@ Answer:"""
         else:
             # Fallback to direct LLM
             fallback_template = """You are an expert NEET tutor. Answer this question comprehensively.
+Write the full answer in {language_name}.
 
 Question: {query}
 
 Answer:"""
             
             fallback_chain = PromptTemplate.from_template(fallback_template) | llm | StrOutputParser()
-            answer = fallback_chain.invoke({"query": query})
+            answer = fallback_chain.invoke(
+                {
+                    "query": query,
+                    "language_name": selected_language_name,
+                }
+            )
             
             return {
                 'answer': _format_for_chat_display(answer, query, subject),
